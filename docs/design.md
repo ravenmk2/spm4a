@@ -527,6 +527,11 @@ build.sh                   # 发布构建：全平台二进制 + 版本戳 + che
 
 - gradle init script：鸭子类型匹配（init classpath 拿不到 Boot 插件类），jvmArgs 为
   覆盖语义，仅匹配名为 `bootRun` 的任务；重度定制 bootRun（多 task / 改名 task）无效。
+- devtools restart 激活时（`spring-boot:run` / `bootRun` 从源码运行），actuator 优雅停机
+  完成后 JVM 以退出码 1 结束（已查明：`spring.devtools.restart.enabled=false` 须以 JVM
+  系统属性关闭后退出码归 0；打包 jar 运行 devtools 自动失效，退出码为 0）。spm4a 自行
+  跟踪进程存亡，功能不受影响；gradle 侧由 init script 的 `ignoreExitValue = true` 兜底，
+  避免构建被记为失败（CI job summary 红叉的来源）。
 - custom launcher 的就绪检查走 actuator health：非 Spring 进程会超时失败（v1 的
   就绪模型面向 Spring Boot）。
 - maven/gradle 的 args 与 jvmArguments 通道均为空格切分单字符串，含空格的参数不支持。

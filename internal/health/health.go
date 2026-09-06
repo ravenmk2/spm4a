@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -46,13 +47,16 @@ func IsUp(ctx context.Context, port int, path string) bool {
 }
 
 // Shutdown posts to the actuator shutdown endpoint. The path is the Spring
-// Boot default; a custom management base path is not configurable in M2.
+// Boot default; a custom management base path is not configurable (§10.2).
+// An empty JSON body is sent for maximum compatibility across Boot versions
+// and proxies (some setups reject a bodyless POST).
 func Shutdown(ctx context.Context, port int) error {
 	url := fmt.Sprintf("http://127.0.0.1:%d/actuator/shutdown", port)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader("{}"))
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := probeClient.Do(req)
 	if err != nil {
 		return err

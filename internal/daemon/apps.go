@@ -231,13 +231,12 @@ func (d *Daemon) buildCommand(spec *state.Spec, tool *toolInfo, jvmOpts []string
 	case "maven":
 		return launcher.BuildMavenCommand(tool.toolBin, jvmOpts, spec.Args), nil
 	case "gradle":
-		init := ""
-		if len(jvmOpts) > 0 {
-			init = filepath.Join(d.ep.RunDir(),
-				fmt.Sprintf("spm4a-init-%s-%s.gradle", spec.Namespace, spec.Name))
-			if err := os.WriteFile(init, []byte(launcher.GradleInitScript(jvmOpts)), 0o644); err != nil {
-				return nil, ipc.NewError(ipc.CodeInternal, "write gradle init script: "+err.Error())
-			}
+		// Always generate the init script: it also sets ignoreExitValue on
+		// bootRun, even when there are no jvmArgs to inject.
+		init := filepath.Join(d.ep.RunDir(),
+			fmt.Sprintf("spm4a-init-%s-%s.gradle", spec.Namespace, spec.Name))
+		if err := os.WriteFile(init, []byte(launcher.GradleInitScript(jvmOpts)), 0o644); err != nil {
+			return nil, ipc.NewError(ipc.CodeInternal, "write gradle init script: "+err.Error())
 		}
 		return launcher.BuildGradleCommand(tool.toolBin, spec.Args, init), nil
 	case "custom":

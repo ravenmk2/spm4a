@@ -45,6 +45,7 @@ func TestGradleInitScript(t *testing.T) {
 	s := GradleInitScript([]string{"-Xms32M", "-Xmx256M", "-XX:TieredStopAtLevel=1"})
 	for _, want := range []string{
 		"bootRun",
+		"task.ignoreExitValue = true",
 		"task.jvmArgs = ['-Xms32M', '-Xmx256M', '-XX:TieredStopAtLevel=1']",
 	} {
 		if !strings.Contains(s, want) {
@@ -62,8 +63,11 @@ func TestGradleInitScriptEscaping(t *testing.T) {
 
 func TestGradleInitScriptEmpty(t *testing.T) {
 	s := GradleInitScript(nil)
-	if !strings.Contains(s, "task.jvmArgs = []") {
-		t.Errorf("init script should set an empty list:\n%s", s)
+	if strings.Contains(s, "jvmArgs") {
+		t.Errorf("empty opts should not touch jvmArgs:\n%s", s)
+	}
+	if !strings.Contains(s, "task.ignoreExitValue = true") {
+		t.Errorf("init script must always set ignoreExitValue:\n%s", s)
 	}
 }
 
