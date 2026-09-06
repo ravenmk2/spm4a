@@ -296,7 +296,8 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 `--debug` 时追加 `-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=<addr>`：
 
 - JDK ≥ 9：`address=*:<port>`；JDK 8：`address=<port>`（仅 localhost）。
-  依据 JDK 注册表缓存的 major version 选语法，不现探测。
+  依据 JDK 注册表缓存的 major version 选语法；未注册的默认 JDK 仅在开启 debug 时
+  现场探测一次。
 - jar：直接拼 java 参数；maven：`-Dspring-boot.run.jvmArguments`；
   gradle：临时 init script 设置 `bootRun.jvmArgs`。
 - 禁用 `JAVA_TOOL_OPTIONS` 方案（会污染 Maven/Gradle 自身 JVM 造成端口冲突）。
@@ -361,14 +362,16 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 
 ## 12. 多 JDK 支持
 
-- **注册表**：`~/.spm4a/jdks.json`，由 CLI 本地维护（不经 daemon）：
+- **注册表**：`<SPM4A_HOME>/jdks.json`，由 CLI 本地维护；daemon 侧只读，
+  唯一例外是绝对路径 JDK 现场探测后缓存写入：
   - `spm4a jdk scan`：扫描 JAVA_HOME 及其版本号变体
     （`JAVA8_HOME`、`JAVA_11_HOME`、`JAVA_HOME_17`、`JAVA_HOME21` 等，
     统一正则 `^JAVA_?(\d+)?_?HOME_?(\d+)?$`，变量名里的数字仅作候选提示，
     版本以 `java -version` 实测为准）、PATH、`~/.sdkman`、`~/.jdks`、
     `/usr/lib/jvm`、`Program Files\Java`、mise/asdf 等常见位置。
   - `spm4a jdk ls` / `spm4a jdk add <path>`。
-  - 登记时执行一次 `java -version` 并缓存 major version 与架构。
+  - 登记时执行一次 `java -version` 并缓存 major version 与完整版本号
+    （arch 字符串解析不可靠，v1 不缓存架构）。
 - **引用**：AppSpec `jdk` 字段接受绝对路径 / 注册表名 / major 版本号
   （多个匹配取最高 patch）；缺省回退 `JAVA_HOME` → PATH。
 - **生效路径**：jar 模式直接用 `<jdkHome>/bin/java`；maven/gradle 模式给子进程

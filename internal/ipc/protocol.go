@@ -18,6 +18,8 @@ type StartSpec struct {
 	Xms             *string           `json:"xms,omitempty"` // nil = default 32M; "" = disable injection
 	Xmx             *string           `json:"xmx,omitempty"` // nil = default 256M; "" = disable injection
 	JvmOpts         []string          `json:"jvmOpts,omitempty"`
+	Debug           bool              `json:"debug,omitempty"`
+	DebugPort       int               `json:"debugPort,omitempty"` // 0 = random from pool
 }
 
 type StartParams struct {

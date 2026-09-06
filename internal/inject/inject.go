@@ -3,10 +3,22 @@ package inject
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
 const AppJSONEnv = "SPRING_APPLICATION_JSON"
+
+// JdwpAgent returns the §8.3 JDWP agent flag. JDK >= 9 binds all interfaces
+// with address=*:<port>; JDK 8 only supports address=<port> (localhost).
+// major == 0 (unknown) assumes a modern JDK.
+func JdwpAgent(port, major int) string {
+	addr := "*:" + strconv.Itoa(port)
+	if major > 0 && major < 9 {
+		addr = strconv.Itoa(port)
+	}
+	return "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=" + addr
+}
 
 const exposureIncludeKey = "management.endpoints.web.exposure.include"
 

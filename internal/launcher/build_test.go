@@ -8,6 +8,19 @@ import (
 	"testing"
 )
 
+func TestBuildJvmOptsOrder(t *testing.T) {
+	got := BuildJvmOpts("-agentlib:jdwp=..address=*:5005", "32M", "256M", []string{"-XX:+UseG1GC"})
+	want := []string{"-agentlib:jdwp=..address=*:5005", "-Xms32M", "-Xmx256M", "-XX:+UseG1GC"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v (jdwp + xms/xmx + jvm-opts)", got, want)
+	}
+	// disabled heap entries skipped
+	got = BuildJvmOpts("", "", "", nil)
+	if len(got) != 0 {
+		t.Errorf("got %v, want empty", got)
+	}
+}
+
 func TestBuildMavenCommand(t *testing.T) {
 	cmd := BuildMavenCommand("mvn", []string{"-Xms32M", "-Xmx256M"}, []string{"--a=1", "--b=2"})
 	want := []string{

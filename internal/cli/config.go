@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,6 +29,7 @@ type appFileEntry struct {
 	Xms             *string           `yaml:"xms"`
 	Xmx             *string           `yaml:"xmx"`
 	JvmOpts         []string          `yaml:"jvm-opts"`
+	Debug           any               `yaml:"debug"`
 }
 
 type appFile struct {
@@ -82,7 +84,33 @@ func findAppFile(explicit string) (string, *appFile, error) {
 	return "", nil, nil
 }
 
-// parsePort accepts an int, a numeric string, or "random" (0).
+// parseDebug accepts true/false/"true"/"false"/"random" or a port number.
+func parseDebug(v any) (debug bool, port int, err error) {
+	switch t := v.(type) {
+	case nil:
+		return false, 0, nil
+	case bool:
+		return t, 0, nil
+	case int:
+		return true, t, nil
+	case int64:
+		return true, int(t), nil
+	case string:
+		switch strings.ToLower(t) {
+		case "true", "random", "":
+			return t != "", 0, nil
+		case "false":
+			return false, 0, nil
+		}
+		n, perr := strconv.Atoi(t)
+		if perr != nil {
+			return false, 0, fmt.Errorf("invalid debug value %q: want true|false|<port>", t)
+		}
+		return true, n, nil
+	default:
+		return false, 0, fmt.Errorf("invalid debug value %v", v)
+	}
+}
 func parsePort(v any) (port int, set bool, err error) {
 	switch t := v.(type) {
 	case nil:

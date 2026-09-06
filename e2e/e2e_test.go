@@ -27,6 +27,8 @@ type appView struct {
 	Status          string         `json:"status"`
 	PID             int            `json:"pid"`
 	ActualPort      int            `json:"actualPort"`
+	DebugPort       int            `json:"debugPort"`
+	JavaBin         string         `json:"javaBin"`
 	ResolvedJar     string         `json:"resolvedJar"`
 	ResolvedJvmOpts []string       `json:"resolvedJvmOpts"`
 	LogPath         string         `json:"logPath"`

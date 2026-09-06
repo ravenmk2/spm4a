@@ -21,6 +21,7 @@ type startFlags struct {
 	jar        string
 	jdk        string
 	port       string
+	debug      string
 	env        []string
 	healthPath string
 	logFile    string
@@ -49,7 +50,9 @@ func newStartCmd() *cobra.Command {
 	fl.StringVar(&f.launcher, "launcher", "", "launcher (M1: jar only)")
 	fl.StringVar(&f.jar, "jar", "", "jar path: absolute | relative to workdir | glob")
 	fl.StringVar(&f.jdk, "jdk", "", "JDK home (M1: absolute path only)")
-	fl.StringVar(&f.port, "port", "", "port (M1: fixed port; \"random\" is M2)")
+	fl.StringVar(&f.port, "port", "", "port (fixed number, or \"random\")")
+	fl.StringVar(&f.debug, "debug", "", "enable JDWP debug agent (optional =port; bare = random)")
+	fl.Lookup("debug").NoOptDefVal = "true"
 	fl.StringArrayVar(&f.env, "env", nil, "environment variable K=V (repeatable)")
 	fl.StringVar(&f.logFile, "log-file", "", "log file expression (default ./logs/${name}.log)")
 	fl.StringVar(&f.healthPath, "health-path", "", "actuator health path (default /actuator/health)")
@@ -169,6 +172,14 @@ func runStart(cmd *cobra.Command, f *startFlags, args []string) error {
 		if changed("jvm-opt") {
 			sp.JvmOpts = f.jvmOpts
 		}
+		if changed("debug") {
+			dbg, dport, err := parseDebug(f.debug)
+			if err != nil {
+				return usageErr("%v", err)
+			}
+			sp.Debug = dbg
+			sp.DebugPort = dport
+		}
 
 		if sp.Workdir == "" {
 			return usageErr("workdir is required (pass [dir], --workdir, or use %s)", appFileName)
@@ -233,6 +244,10 @@ func specFromEntry(e appFileEntry, base string) (ipc.StartSpec, bool, error) {
 	if err != nil {
 		return sp, false, usageErr("%s: app %q: %v", appFileName, e.Name, err)
 	}
+	debug, debugPort, err := parseDebug(e.Debug)
+	if err != nil {
+		return sp, false, usageErr("%s: app %q: %v", appFileName, e.Name, err)
+	}
 	sp = ipc.StartSpec{
 		Name:            e.Name,
 		Workdir:         workdir,
@@ -248,6 +263,8 @@ func specFromEntry(e appFileEntry, base string) (ipc.StartSpec, bool, error) {
 		Xms:             e.Xms,
 		Xmx:             e.Xmx,
 		JvmOpts:         e.JvmOpts,
+		Debug:           debug,
+		DebugPort:       debugPort,
 	}
 	return sp, set, nil
 }

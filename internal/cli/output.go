@@ -34,6 +34,9 @@ func printAppDetail(a *state.App) {
 	out("status", a.Status)
 	out("pid", a.PID)
 	out("port", a.ActualPort)
+	if a.DebugPort != 0 {
+		out("debugPort", a.DebugPort)
+	}
 	out("workdir", a.Spec.Workdir)
 	out("launcher", a.Spec.Launcher)
 	if a.JavaBin != "" {

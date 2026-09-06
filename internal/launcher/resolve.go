@@ -99,10 +99,13 @@ var heapSizeRe = regexp.MustCompile(`^\d+[kKmMgG]$`)
 
 func ValidHeapSize(s string) bool { return heapSizeRe.MatchString(s) }
 
-// BuildJvmOpts composes §8.4: [xms/xmx] + [jvm-opts] (jdwp lands in M4).
-// An empty xms/xmx disables that entry.
-func BuildJvmOpts(xms, xmx string, user []string) []string {
+// BuildJvmOpts composes §8.4: [jdwp] + [xms/xmx] + [jvm-opts].
+// Empty jdwp/xms/xmx entries are skipped.
+func BuildJvmOpts(jdwp, xms, xmx string, user []string) []string {
 	var out []string
+	if jdwp != "" {
+		out = append(out, jdwp)
+	}
 	if xms != "" {
 		out = append(out, "-Xms"+xms)
 	}

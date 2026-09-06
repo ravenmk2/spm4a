@@ -15,6 +15,7 @@ import (
 	"spm4a/internal/health"
 	"spm4a/internal/inject"
 	"spm4a/internal/ipc"
+	"spm4a/internal/jdk"
 	"spm4a/internal/launcher"
 	"spm4a/internal/proc"
 	"spm4a/internal/state"
@@ -40,7 +41,7 @@ func (d *Daemon) launch(app *state.App, wait bool, timeout time.Duration) error 
 	if err := launcher.ValidateLogExpr(logExpr); err != nil {
 		return ipc.NewError(ipc.CodeInvalidParams, err.Error())
 	}
-	jvmOpts := launcher.BuildJvmOpts(spec.Xms, spec.Xmx, spec.JvmOpts)
+	heapOpts := launcher.BuildJvmOpts("", spec.Xms, spec.Xmx, spec.JvmOpts)
 	vars := map[string]string{
 		"name":      spec.Name,
 		"namespace": spec.Namespace,
@@ -68,19 +69,52 @@ func (d *Daemon) launch(app *state.App, wait bool, timeout time.Duration) error 
 			_ = ln.Close()
 		}
 
-		p, err := d.startProcess(app, port, tool, jvmOpts, logExpr, vars)
-		if err != nil {
+		debugPort := 0
+		if spec.Debug {
+			if spec.DebugPort != 0 {
+				ln, lerr := net.Listen("tcp", fmt.Sprintf(":%d", spec.DebugPort))
+				if lerr != nil {
+					if randomPort {
+						d.pool.Release(port)
+					}
+					return ipc.NewError(ipc.CodePortConflict,
+						fmt.Sprintf("debug port %d is already in use", spec.DebugPort))
+				}
+				_ = ln.Close()
+				debugPort = spec.DebugPort
+			} else {
+				dp, derr := d.pool.Acquire()
+				if derr != nil {
+					if randomPort {
+						d.pool.Release(port)
+					}
+					return ipc.NewError(ipc.CodeInternal, "port pool (debug): "+derr.Error())
+				}
+				debugPort = dp
+			}
+		}
+		jvmOpts := heapOpts
+		if spec.Debug {
+			jvmOpts = append([]string{inject.JdwpAgent(debugPort, tool.jdkMajor)}, heapOpts...)
+		}
+		releasePorts := func() {
 			if randomPort {
 				d.pool.Release(port)
 			}
+			if spec.Debug && spec.DebugPort == 0 {
+				d.pool.Release(debugPort)
+			}
+		}
+
+		p, err := d.startProcess(app, port, debugPort, tool, jvmOpts, logExpr, vars)
+		if err != nil {
+			releasePorts()
 			return err
 		}
 		if !wait {
 			// Readiness (and reservation release) happens in the background.
 			go func() {
-				if randomPort {
-					defer d.pool.Release(port)
-				}
+				defer releasePorts()
 				if err := d.waitReady(app, p, timeout); err != nil && !errors.Is(err, errEarlyExit) {
 					d.log.Warn("background ready check failed", "app", spec.Name, "err", err)
 				}
@@ -89,9 +123,7 @@ func (d *Daemon) launch(app *state.App, wait bool, timeout time.Duration) error 
 		}
 
 		err = d.waitReady(app, p, timeout)
-		if randomPort {
-			d.pool.Release(port)
-		}
+		releasePorts()
 		if err != nil && errors.Is(err, errEarlyExit) && randomPort && attempt+1 < attempts {
 			d.log.Info("app exited before ready; retrying with a new port", "app", spec.Name, "port", port)
 			continue
@@ -106,36 +138,85 @@ func (d *Daemon) launch(app *state.App, wait bool, timeout time.Duration) error 
 
 // toolInfo holds the per-launcher resolution result used to build the command.
 type toolInfo struct {
-	javaBin string // jar launcher: resolved java binary; maven/gradle: unused
-	jarPath string // jar launcher only
-	toolBin string // maven/gradle binary
+	javaBin  string // jar launcher: resolved java binary; maven/gradle: effective java (for display)
+	jarPath  string // jar launcher only
+	toolBin  string // maven/gradle binary
+	jdkHome  string // resolved JDK home ("" when using the default fallback)
+	jdkMajor int    // 0 = unknown
 }
 
-// resolveTool validates and resolves launcher-specific bits once per launch.
+// resolveTool validates and resolves launcher-specific bits once per launch,
+// including the AppSpec.JDK reference (abs path | registry name | major).
 func (d *Daemon) resolveTool(spec *state.Spec) (*toolInfo, error) {
+	resolveJDK := func() (home string, major int, err error) {
+		if spec.JDK == "" {
+			return "", 0, nil
+		}
+		reg, err := jdk.Load(d.home)
+		if err != nil {
+			return "", 0, ipc.NewError(ipc.CodeInternal, "load jdk registry: "+err.Error())
+		}
+		e, rerr := reg.Resolve(spec.JDK)
+		if rerr != nil {
+			return "", 0, ipc.NewError(ipc.CodeInvalidParams, rerr.Error())
+		}
+		if _, serr := os.Stat(jdk.Bin(e.Home)); serr != nil {
+			return "", 0, ipc.NewError(ipc.CodeInvalidParams,
+				fmt.Sprintf("jdk %q has no java binary at %s", spec.JDK, jdk.Bin(e.Home)))
+		}
+		return e.Home, e.Major, nil
+	}
+
 	switch spec.Launcher {
 	case "jar":
 		jarPath, err := launcher.ResolveJar(spec.Workdir, spec.Jar)
 		if err != nil {
 			return nil, ipc.NewError(ipc.CodeInvalidParams, err.Error())
 		}
-		javaBin, err := launcher.ResolveJava(spec.JDK)
+		home, major, rerr := resolveJDK()
+		if rerr != nil {
+			return nil, rerr
+		}
+		if home != "" {
+			return &toolInfo{javaBin: jdk.Bin(home), jarPath: jarPath, jdkHome: home, jdkMajor: major}, nil
+		}
+		javaBin, err := launcher.ResolveJava("")
 		if err != nil {
 			return nil, ipc.NewError(ipc.CodeInvalidParams, err.Error())
 		}
-		return &toolInfo{javaBin: javaBin, jarPath: jarPath}, nil
+		if spec.Debug {
+			// JDWP syntax needs the major version; probe the fallback JDK once.
+			major = jdk.ProbeBinMajor(javaBin)
+		}
+		return &toolInfo{javaBin: javaBin, jarPath: jarPath, jdkMajor: major}, nil
 	case "maven":
 		mvn, err := launcher.ResolveMaven()
 		if err != nil {
 			return nil, ipc.NewError(ipc.CodeInvalidParams, err.Error())
 		}
-		return &toolInfo{toolBin: mvn}, nil
+		home, major, rerr := resolveJDK()
+		if rerr != nil {
+			return nil, rerr
+		}
+		t := &toolInfo{toolBin: mvn, jdkHome: home, jdkMajor: major}
+		if home != "" {
+			t.javaBin = jdk.Bin(home)
+		}
+		return t, nil
 	case "gradle":
 		g, err := launcher.ResolveGradle(spec.Workdir)
 		if err != nil {
 			return nil, ipc.NewError(ipc.CodeInvalidParams, err.Error())
 		}
-		return &toolInfo{toolBin: g}, nil
+		home, major, rerr := resolveJDK()
+		if rerr != nil {
+			return nil, rerr
+		}
+		t := &toolInfo{toolBin: g, jdkHome: home, jdkMajor: major}
+		if home != "" {
+			t.javaBin = jdk.Bin(home)
+		}
+		return t, nil
 	}
 	return nil, ipc.NewError(ipc.CodeInvalidParams, "unsupported launcher: "+spec.Launcher)
 }
@@ -163,7 +244,7 @@ func (d *Daemon) buildCommand(spec *state.Spec, tool *toolInfo, jvmOpts []string
 
 // startProcess builds env/command, spawns the child, and registers runtime
 // state. The app must already be in the store.
-func (d *Daemon) startProcess(app *state.App, port int, tool *toolInfo, jvmOpts []string, logExpr string, vars map[string]string) (*proc.Proc, error) {
+func (d *Daemon) startProcess(app *state.App, port, debugPort int, tool *toolInfo, jvmOpts []string, logExpr string, vars map[string]string) (*proc.Proc, error) {
 	spec := &app.Spec
 
 	env := map[string]string{}
@@ -175,11 +256,9 @@ func (d *Daemon) startProcess(app *state.App, port int, tool *toolInfo, jvmOpts 
 	for k, v := range spec.Env {
 		env[k] = v
 	}
-	javaBin := tool.javaBin
-	if spec.Launcher != "jar" && spec.JDK != "" {
+	if spec.Launcher != "jar" && tool.jdkHome != "" {
 		// maven/gradle run the build tool; hand the JDK over via JAVA_HOME (§12)
-		env["JAVA_HOME"] = spec.JDK
-		javaBin = filepath.Join(spec.JDK, "bin", launcher.JavaExeName())
+		env["JAVA_HOME"] = tool.jdkHome
 	}
 	env, injected, err := inject.BuildSpringEnv(env, port)
 	if err != nil {
@@ -235,13 +314,14 @@ func (d *Daemon) startProcess(app *state.App, port int, tool *toolInfo, jvmOpts 
 
 	key := d.key(spec.Namespace, spec.Name)
 	d.mu.Lock()
-	app.JavaBin = javaBin
+	app.JavaBin = tool.javaBin
 	app.ResolvedJar = tool.jarPath
 	app.ResolvedJvmOpts = jvmOpts
 	app.LogPath = logPath
 	app.Injected = injected
 	app.PID = p.PID()
 	app.ActualPort = port
+	app.DebugPort = debugPort
 	app.Status = state.StatusStarting
 	app.LastExit = nil
 	d.procs[key] = p

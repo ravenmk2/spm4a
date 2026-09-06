@@ -34,6 +34,8 @@ type Spec struct {
 	Xms             string            `json:"xms"` // "" = not injected (default materialized at start)
 	Xmx             string            `json:"xmx"`
 	JvmOpts         []string          `json:"jvmOpts,omitempty"`
+	Debug           bool              `json:"debug,omitempty"`
+	DebugPort       int               `json:"debugPort,omitempty"` // 0 = random from pool
 }
 
 type ExitInfo struct {
@@ -46,6 +48,7 @@ type App struct {
 	PID             int            `json:"pid,omitempty"`
 	Status          string         `json:"status"`
 	ActualPort      int            `json:"actualPort,omitempty"`
+	DebugPort       int            `json:"debugPort,omitempty"`
 	JavaBin         string         `json:"javaBin,omitempty"`
 	ResolvedJar     string         `json:"resolvedJar,omitempty"`
 	ResolvedJvmOpts []string       `json:"resolvedJvmOpts,omitempty"`

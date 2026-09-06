@@ -90,6 +90,7 @@ func newRootCmd() *cobra.Command {
 		newStatusCmd(),
 		newLogsCmd(),
 		newHealthCmd(),
+		newJdkCmd(),
 		newRmCmd(),
 		newKillCmd(),
 		newDaemonCmd(),

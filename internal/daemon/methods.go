@@ -167,6 +167,9 @@ func specFromRPC(sp *ipc.StartSpec) (*state.Spec, error) {
 	if sp.Port < 0 || sp.Port > 65535 {
 		return nil, ipc.ErrParams(fmt.Sprintf("invalid port %d", sp.Port))
 	}
+	if sp.DebugPort < 0 || sp.DebugPort > 65535 {
+		return nil, ipc.ErrParams(fmt.Sprintf("invalid debugPort %d", sp.DebugPort))
+	}
 	healthPath := sp.HealthPath
 	if healthPath == "" {
 		healthPath = "/actuator/health"
@@ -206,6 +209,8 @@ func specFromRPC(sp *ipc.StartSpec) (*state.Spec, error) {
 		Xms:             xms,
 		Xmx:             xmx,
 		JvmOpts:         sp.JvmOpts,
+		Debug:           sp.Debug,
+		DebugPort:       sp.DebugPort,
 	}, nil
 }
 
