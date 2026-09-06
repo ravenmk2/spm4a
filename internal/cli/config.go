@@ -18,6 +18,7 @@ type appFileEntry struct {
 	Workdir         string            `yaml:"workdir"`
 	Launcher        string            `yaml:"launcher"`
 	Jar             string            `yaml:"jar"`
+	Command         []string          `yaml:"command"`
 	JDK             string            `yaml:"jdk"`
 	Port            any               `yaml:"port"`
 	Env             map[string]string `yaml:"env"`

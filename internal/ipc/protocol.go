@@ -8,6 +8,7 @@ type StartSpec struct {
 	Workdir         string            `json:"workdir"`
 	Launcher        string            `json:"launcher,omitempty"`
 	Jar             string            `json:"jar,omitempty"`
+	Command         []string          `json:"command,omitempty"` // launcher=custom
 	JDK             string            `json:"jdk,omitempty"`
 	Port            int               `json:"port,omitempty"` // 0 = random from the daemon pool
 	Env             map[string]string `json:"env,omitempty"`

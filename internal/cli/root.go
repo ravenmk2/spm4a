@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -35,12 +36,32 @@ func Execute() {
 	if err == nil {
 		return
 	}
-	if re, ok := err.(*ipc.Error); ok {
+	code := exitCode(err)
+	if flagJSON {
+		writeJSONError(err, code)
+	} else if re, ok := err.(*ipc.Error); ok {
 		fmt.Fprintln(os.Stderr, "spm4a:", re.Message)
 	} else {
 		fmt.Fprintln(os.Stderr, "spm4a:", err)
 	}
-	os.Exit(exitCode(err))
+	os.Exit(code)
+}
+
+// writeJSONError emits a machine-readable error object on stderr in --json
+// mode: {"error":{"message":...,"code":<rpc code>,"exitCode":<exit code>}}.
+func writeJSONError(err error, exitCode int) {
+	payload := map[string]any{"message": err.Error(), "exitCode": exitCode}
+	var re *ipc.Error
+	if errors.As(err, &re) {
+		payload["code"] = re.Code
+	}
+	out := map[string]any{"error": payload}
+	b, merr := json.Marshal(out)
+	if merr != nil {
+		fmt.Fprintln(os.Stderr, "spm4a:", err)
+		return
+	}
+	fmt.Fprintln(os.Stderr, string(b))
 }
 
 func exitCode(err error) int {

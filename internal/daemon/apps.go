@@ -217,6 +217,8 @@ func (d *Daemon) resolveTool(spec *state.Spec) (*toolInfo, error) {
 			t.javaBin = jdk.Bin(home)
 		}
 		return t, nil
+	case "custom":
+		return &toolInfo{}, nil
 	}
 	return nil, ipc.NewError(ipc.CodeInvalidParams, "unsupported launcher: "+spec.Launcher)
 }
@@ -238,6 +240,12 @@ func (d *Daemon) buildCommand(spec *state.Spec, tool *toolInfo, jvmOpts []string
 			}
 		}
 		return launcher.BuildGradleCommand(tool.toolBin, spec.Args, init), nil
+	case "custom":
+		cmd, err := launcher.BuildCustomCommand(spec.Command, spec.Workdir)
+		if err != nil {
+			return nil, ipc.NewError(ipc.CodeInvalidParams, err.Error())
+		}
+		return cmd, nil
 	}
 	return nil, ipc.NewError(ipc.CodeInvalidParams, "unsupported launcher: "+spec.Launcher)
 }

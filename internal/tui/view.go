@@ -64,22 +64,36 @@ func (m *model) renderTable() string {
 		b.WriteString(styleDim.Render("  (no apps — start one with: spm4a start ...)"))
 		return b.String()
 	}
-	budget := m.tableHeight() - 1 // header already emitted
-	lines := 0
+
+	// Build all lines (group headers interleaved in -A mode), then render the
+	// visible window [listOffset, listOffset+visible).
+	var lines []string
 	lastNs := ""
 	for i, a := range m.apps {
 		if m.all && a.Spec.Namespace != lastNs {
 			lastNs = a.Spec.Namespace
-			fmt.Fprintf(&b, "%s\n", styleGroup.Render("─ "+lastNs+" "))
-			lines++
+			lines = append(lines, styleGroup.Render("─ "+lastNs+" "))
 		}
-		if lines >= budget {
-			fmt.Fprintf(&b, "%s", styleDim.Render(fmt.Sprintf("  … %d more", len(m.apps)-i)))
-			return strings.TrimRight(b.String(), "\n")
-		}
-		b.WriteString(m.renderRow(i, a))
+		lines = append(lines, m.renderRow(i, a))
+	}
+	visible := m.tableHeight() - 1
+	if visible < 1 {
+		visible = 1
+	}
+	start := m.listOffset
+	if start > len(lines) {
+		start = len(lines)
+	}
+	end := start + visible
+	if end > len(lines) {
+		end = len(lines)
+	}
+	for _, l := range lines[start:end] {
+		b.WriteString(l)
 		b.WriteString("\n")
-		lines++
+	}
+	if end < len(lines) {
+		b.WriteString(styleDim.Render(fmt.Sprintf("  ↓ %d more", len(lines)-end)))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

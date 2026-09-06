@@ -1,0 +1,6 @@
+# gradle 版 demo（CI 用；bootRun 自编译，无需 jar）
+apps:
+  - name: demo-gradle
+    workdir: .
+    launcher: gradle
+    port: 8080

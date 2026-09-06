@@ -86,10 +86,8 @@ daemon 随之退出。下次命令再按需拉起。
   `~/.spm4a/namespaces/<namespace>/state.json`。
 - daemon 崩溃/重启后重新收养仍存活的子进程：按 state.json 中的 PID 逐一探测，
   存活则恢复管理（日志改为文件 tail，健康检查重新挂上）；已死则标记 `stopped`。
-- **Windows 注记**：子进程挂入带 `KILL_ON_JOB_CLOSE` 的 Job Object 后，daemon 退出
-  （`kill`、版本协商更换、崩溃）会使 job 句柄关闭、**整棵应用树被系统终止**——
-  Windows 上收养实际只能标记 stopped（Unix 无此问题，pgroup 不随 daemon 消亡）。
-  是否移除该标志改靠显式 TerminateJobObject，M6 评估（见 §19）。
+- 收养语义全平台一致（M6 定案）：Windows 的 Job Object 不设 `KILL_ON_JOB_CLOSE`，
+  daemon 退出/崩溃不再连带杀 app，重启后正常收养；杀树一律显式 TerminateJobObject。
 
 ## 4. Namespace
 
@@ -271,7 +269,8 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 进程树管理（maven/gradle 模式存在孙进程）：
 
 - Unix：子进程 `Setpgid`，信号发 `-pgid` 覆盖整棵树。
-- Windows：子进程挂入 Job Object（`KILL_ON_JOB_CLOSE`），保证树清理。
+- Windows：子进程挂入 Job Object，需要杀树时显式 `TerminateJobObject`
+  （**不使用** `KILL_ON_JOB_CLOSE`——否则 daemon 退出会连带杀光 app，收养失效）。
 
 ## 8. Spring Boot 注入
 
@@ -418,6 +417,9 @@ spm4a tui [-A]
 - `start` 默认阻塞至 `ready`（agent 友好），`--no-wait` 立即返回。
 - 退出码：`0` 成功；`1` 通用错误；`2` 用法/参数错误（含 -32602）；`3` app 不存在（-32001）；
   `4` 冲突类（-32002 app 已存在、-32004 端口冲突）；`5` daemon 不可用；`6` 就绪检查未通过/超时（-32006）。
+- `--json` 模式下错误以 JSON 输出到 stderr：
+  `{"error":{"code":-32001,"message":"...","exitCode":3}}`，stdout 保持纯数据，
+  agent 按退出码分流即可。
 
 ## 15. TUI（bubbletea）
 
@@ -505,15 +507,17 @@ e2e/
 5. **M5 TUI**。
 6. **M6 打磨**：配置文件完善、错误码与 `--json` 全覆盖、跨平台 e2e（Windows/Linux/macOS CI）。
 
-## 19. 开放问题
+## 19. 开放问题与已知限制
 
-- gradle init script 已落地为鸭子类型方案（`tasks.matching('bootRun')` + `hasProperty('jvmArgs')`，
-  因 init script classpath 拿不到 Boot 插件类），jvmArgs 为覆盖语义；对重度定制 bootRun
-  （多 task / 改名 task）无效，仍需真实 gradle 环境验证（本机无 gradle，e2e 暂 skip）。
-- Windows 待评估：Job Object 是否保留 `KILL_ON_JOB_CLOSE`——保留则 daemon 退出即杀全部
-  app（收养失效）；移除则需 daemon 各退出路径显式 TerminateJobObject。M6 决定。
-- devtools 热重启与就绪检查容忍窗口的参数（周期 5s × 3 次）按实际体验调优。
-- TUI 详细交互稿在 M5 前细化。
-- 已知限制：日志表达式含 `${pid}` 时走管道转发（启动后才知 pid），daemon 崩溃后子进程
+- gradle init script 已知限制：鸭子类型匹配（init classpath 拿不到 Boot 插件类）、
+  jvmArgs 覆盖语义、仅匹配名为 `bootRun` 的任务；CI（demo-app-gradle + 三平台矩阵）
+  提供真实验证环境，首轮 CI 观察后即可关闭本项。
+- custom launcher 的就绪检查仍走 actuator health：非 Spring 进程会超时失败。
+  如需任意进程支持，可考虑 `health-path: ""` 显式降级为纯 TCP 判定。
+- devtools 热重启与就绪检查容忍窗口（5s × 3 次）：maven e2e 的 reload 路径实测
+  无误判，保持现状，待真实负载反馈再调。
+- 日志表达式含 `${pid}` 时走管道转发（启动后才知 pid），daemon 崩溃后子进程
   写满管道会阻塞；默认表达式不含 pid 不受影响。后续可改为固定文件名 + 元数据记录 pid。
 - maven/gradle 的 args 与 jvmArguments 通道均为空格切分单字符串，含空格的参数不支持。
+- gradle daemon 驻留：stop 后 Gradle Daemon JVM 按 Gradle 设计保持存活（不占应用端口）；
+  强杀路径（TerminateJobObject）会连带 gradle daemon，属可接受的强制语义。

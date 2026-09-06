@@ -9,9 +9,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// On Windows the tree is managed via a Job Object with
-// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: children spawned by the root (build
-// tool JVM -> forked app JVM) stay in the job and die together.
+// On Windows the tree is managed via a Job Object (no KILL_ON_JOB_CLOSE —
+// daemon exit must not kill apps, §19): children spawned by the root (build
+// tool JVM -> forked app JVM) stay in the job and are killed together on
+// Terminate/Kill via TerminateJobObject.
 type treeHandle struct {
 	mu  sync.Mutex
 	job windows.Handle

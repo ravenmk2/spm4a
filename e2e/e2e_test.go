@@ -95,6 +95,7 @@ func setup(t *testing.T, namespace string) (spmRunner, string) {
 
 	bin := filepath.Join(t.TempDir(), "spm4a"+exeSuffix())
 	run(t, repoRoot, 10*time.Minute, "go", "build", "-o", bin, "./cmd/spm4a")
+	t.Setenv("SPM4A_TEST_BIN", bin)
 	return spmRunner{t: t, bin: bin, dir: demoDir}, demoDir
 }
 
@@ -388,17 +389,116 @@ func TestMavenLauncherLifecycle(t *testing.T) {
 	spm.mustOK("kill")
 }
 
-// TestGradleLauncherLifecycle is skipped unless a gradle binary and a gradle
-// build are present (this machine has neither).
+// TestGradleLauncherLifecycle mirrors the maven lifecycle against
+// e2e/demo-app-gradle. Skipped when no gradle binary is on PATH (this
+// machine) or the gradle demo project is missing; CI runs it for real.
 func TestGradleLauncherLifecycle(t *testing.T) {
 	if _, err := exec.LookPath("gradle"); err != nil {
 		t.Skip("gradle not found in PATH, skipping")
 	}
-	wd, _ := os.Getwd()
-	if _, err := os.Stat(filepath.Join(wd, "demo-app", "build.gradle")); err != nil {
-		t.Skip("demo-app has no gradle build, skipping")
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
 	}
-	// When a gradle project exists this mirrors the maven lifecycle.
+	demoDir := filepath.Join(wd, "demo-app-gradle")
+	if _, err := os.Stat(filepath.Join(demoDir, "build.gradle")); err != nil {
+		t.Skip("demo-app-gradle missing, skipping")
+	}
+	repoRoot := filepath.Dir(wd)
+
+	t.Setenv("SPM4A_HOME", t.TempDir())
+	t.Setenv("SPM4A_NAMESPACE", "e2e-gradle")
+
+	bin := filepath.Join(t.TempDir(), "spm4a"+exeSuffix())
+	run(t, repoRoot, 10*time.Minute, "go", "build", "-o", bin, "./cmd/spm4a")
+	spm := spmRunner{t: t, bin: bin, dir: demoDir}
+
+	t.Cleanup(func() {
+		if out, code := spm.run("stop", "demo-gradle", "--now"); code != 0 {
+			t.Logf("cleanup stop: exit %d\n%s", code, out)
+		}
+		if out, code := spm.run("kill", "--all"); code != 0 {
+			t.Logf("cleanup kill: exit %d\n%s", code, out)
+		}
+	})
+
+	// gradle bootRun compiles the project; cold CI caches make this slow.
+	spm.mustOK("start", "-f", filepath.Join(demoDir, "spm4a-app.yaml"),
+		"--port", "random", "--timeout", "420s")
+	app := spm.status("demo-gradle")
+	if app.Status != "ready" || app.Spec.Launcher != "gradle" {
+		t.Fatalf("status = %q launcher = %q, want ready/gradle", app.Status, app.Spec.Launcher)
+	}
+	port := app.ActualPort
+	if port < 10000 || port > 60000 {
+		t.Fatalf("actualPort = %d, want pool range 10000-60000", port)
+	}
+	portAddr := fmt.Sprintf("127.0.0.1:%d", port)
+	rootPID := app.PID
+	if rootPID == 0 {
+		t.Fatal("PID is 0")
+	}
+
+	waitFor(t, 90*time.Second, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/hello", portAddr))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}, "GET /hello returns 200 (gradle)")
+
+	// touch a source file so `gradle classes` recompiles and devtools restarts
+	src := filepath.Join(demoDir, "src", "main", "java", "com", "spm4a", "demog", "DemoApplication.java")
+	now := time.Now()
+	if err := os.Chtimes(src, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	out := spm.mustOK("reload", "demo-gradle", "--json", "--timeout", "300s")
+	var reloadRes struct {
+		ExitCode int    `json:"exitCode"`
+		Output   string `json:"output"`
+		Health   struct {
+			Status string `json:"status"`
+		} `json:"health"`
+		AppStatus string `json:"appStatus"`
+	}
+	if err := json.Unmarshal([]byte(out), &reloadRes); err != nil {
+		t.Fatalf("parse reload output: %v\n%s", err, out)
+	}
+	if reloadRes.ExitCode != 0 {
+		t.Fatalf("reload exitCode = %d, want 0\n%s", reloadRes.ExitCode, reloadRes.Output)
+	}
+	if reloadRes.Health.Status != "UP" {
+		t.Errorf("reload health = %q, want UP\noutput: %s", reloadRes.Health.Status, reloadRes.Output)
+	}
+
+	after := spm.status("demo-gradle")
+	if after.PID != rootPID {
+		t.Errorf("PID changed across reload: %d -> %d (want same process tree)", rootPID, after.PID)
+	}
+
+	spm.mustOK("stop", "demo-gradle", "--timeout", "60s")
+	waitFor(t, 60*time.Second, func() bool {
+		conn, err := net.DialTimeout("tcp", portAddr, 300*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return false
+		}
+		return true
+	}, "port is closed after stop (gradle)")
+	waitFor(t, 60*time.Second, func() bool { return !pidAlive(rootPID) }, "gradle process tree is gone")
+
+	logPath := filepath.Join(demoDir, "logs", "demo-gradle.log")
+	if data, err := os.ReadFile(logPath); err == nil {
+		if !strings.Contains(string(data), "Commencing graceful shutdown") {
+			t.Errorf("gradle app log lacks graceful shutdown evidence")
+		}
+	}
+
+	spm.mustOK("rm", "demo-gradle")
+	spm.mustOK("kill")
 }
 
 func intFromAny(v any) int {

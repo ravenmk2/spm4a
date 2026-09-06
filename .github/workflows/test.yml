@@ -1,0 +1,51 @@
+name: test
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # demo-app (maven) 以 release=17 编译；demo-app-gradle 经 toolchain 17
+      # （foojay 自动供给 JDK 17）。
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven # 缓存 ~/.m2，加速 e2e 的 mvn package
+
+      # maven 使用 runner 自带版本（三平台均预装且在 PATH），这里显式校验并打印版本
+      - name: maven
+        shell: bash
+        run: mvn -v
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt check
+        shell: bash
+        run: test -z "$(gofmt -l .)"
+
+      - name: go test (unit + e2e)
+        run: go test ./... -count=1 -timeout 25m -v

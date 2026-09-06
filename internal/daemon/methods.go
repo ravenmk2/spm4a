@@ -157,9 +157,16 @@ func specFromRPC(sp *ipc.StartSpec) (*state.Spec, error) {
 	switch launcherKind {
 	case "jar", "maven", "gradle":
 	case "custom":
-		return nil, ipc.ErrParams("custom launcher is not supported yet (M3: jar|maven|gradle)")
+		if len(sp.Command) == 0 {
+			return nil, ipc.ErrParams("command is required for launcher=custom")
+		}
+		if (sp.Xms != nil && *sp.Xms != "") || (sp.Xmx != nil && *sp.Xmx != "") ||
+			len(sp.JvmOpts) > 0 || sp.Debug {
+			return nil, ipc.ErrParams(
+				"custom launcher does not support xms/xmx/jvm-opts/debug (SPRING_APPLICATION_JSON env injection only)")
+		}
 	default:
-		return nil, ipc.ErrParams(fmt.Sprintf("unknown launcher %q (want jar|maven|gradle)", sp.Launcher))
+		return nil, ipc.ErrParams(fmt.Sprintf("unknown launcher %q (want jar|maven|gradle|custom)", sp.Launcher))
 	}
 	if launcherKind == "jar" && sp.Jar == "" {
 		return nil, ipc.ErrParams("jar is required for launcher=jar")
@@ -211,6 +218,7 @@ func specFromRPC(sp *ipc.StartSpec) (*state.Spec, error) {
 		JvmOpts:         sp.JvmOpts,
 		Debug:           sp.Debug,
 		DebugPort:       sp.DebugPort,
+		Command:         sp.Command,
 	}, nil
 }
 

@@ -3,11 +3,12 @@
 package proc
 
 import (
-	"unsafe"
-
 	"golang.org/x/sys/windows"
 )
 
+// jobObject groups the process tree. KILL_ON_JOB_CLOSE is deliberately NOT
+// set (§19): daemon exit/crash must not take apps down with it; tree kills
+// are explicit via TerminateJobObject.
 type jobObject struct {
 	h windows.Handle
 }
@@ -15,15 +16,6 @@ type jobObject struct {
 func newJobObject() (*jobObject, error) {
 	h, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
-		return nil, err
-	}
-	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
-	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-	_, err = windows.SetInformationJobObject(
-		h, windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)))
-	if err != nil {
-		windows.CloseHandle(h)
 		return nil, err
 	}
 	return &jobObject{h: h}, nil

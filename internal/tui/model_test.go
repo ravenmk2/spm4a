@@ -3,6 +3,7 @@ package tui_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -221,5 +222,24 @@ func TestTuiAllNamespacesToggle(t *testing.T) {
 	// -A rendering adds a NAMESPACE column
 	sendKey(tm, 'A')
 	w.wait(t, "NAMESPACE")
+	quit(t, tm)
+}
+
+func TestTuiListScrolls(t *testing.T) {
+	fc := newFakeClient()
+	for i := 0; i < 10; i++ {
+		fc.apps = append(fc.apps, fakeApp("test", fmt.Sprintf("app-%02d", i), "ready"))
+	}
+
+	// 20-row terminal -> table window shows fewer than 10 apps; scrolling must
+	// bring the last row into view when the cursor reaches it.
+	tm := teatest.NewTestModel(t, tui.NewModel(fc, "test", false), teatest.WithInitialTermSize(120, 20))
+	time.Sleep(200 * time.Millisecond)
+	w := newWatcher(tm)
+	w.wait(t, "app-00")
+	for i := 0; i < 9; i++ {
+		sendKey(tm, 'j')
+	}
+	w.wait(t, ">app-09")
 	quit(t, tm)
 }

@@ -2,3 +2,6 @@
 /spm4a.exe
 e2e/demo-app/target/
 e2e/demo-app/logs/
+e2e/demo-app-gradle/build/
+e2e/demo-app-gradle/.gradle/
+e2e/demo-app-gradle/logs/

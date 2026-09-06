@@ -69,6 +69,27 @@ allprojects { project ->
 `
 }
 
+// BuildCustomCommand runs the user's argv in workdir. A command[0] containing
+// a path separator (or starting with ".") resolves against workdir; a bare
+// name goes through PATH lookup.
+func BuildCustomCommand(command []string, workdir string) (*exec.Cmd, error) {
+	if len(command) == 0 {
+		return nil, fmt.Errorf("command is required for launcher=custom")
+	}
+	bin := command[0]
+	if strings.ContainsAny(bin, `/\`) || strings.HasPrefix(bin, ".") {
+		bin = filepath.Join(workdir, filepath.FromSlash(bin))
+	} else {
+		p, err := exec.LookPath(bin)
+		if err != nil {
+			return nil, fmt.Errorf("command not found: %s", bin)
+		}
+		bin = p
+	}
+	cmd := exec.Command(bin, command[1:]...)
+	return cmd, nil
+}
+
 // BuildGradleCommand: gradle bootRun [-I initscript] [--args=...].
 func BuildGradleCommand(gradleBin string, args []string, initScript string) *exec.Cmd {
 	argv := []string{"bootRun"}

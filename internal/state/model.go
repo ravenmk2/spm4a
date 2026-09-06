@@ -24,6 +24,7 @@ type Spec struct {
 	Workdir         string            `json:"workdir"`
 	Launcher        string            `json:"launcher"`
 	Jar             string            `json:"jar,omitempty"`
+	Command         []string          `json:"command,omitempty"` // launcher=custom: argv, executed in workdir
 	JDK             string            `json:"jdk,omitempty"`
 	Port            int               `json:"port"` // 0 = random from the daemon pool
 	Env             map[string]string `json:"env,omitempty"`
@@ -72,6 +73,7 @@ func (a *App) Snapshot() *App {
 	cp := *a
 	cp.Spec.Env = cloneMap(a.Spec.Env)
 	cp.Spec.Args = append([]string(nil), a.Spec.Args...)
+	cp.Spec.Command = append([]string(nil), a.Spec.Command...)
 	cp.Spec.JvmOpts = append([]string(nil), a.Spec.JvmOpts...)
 	cp.ResolvedJvmOpts = append([]string(nil), a.ResolvedJvmOpts...)
 	if a.Injected != nil {

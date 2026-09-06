@@ -47,7 +47,7 @@ func newStartCmd() *cobra.Command {
 	fl.StringVar(&f.only, "only", "", "start only the named app from the file")
 	fl.StringVar(&f.name, "name", "", "app name (default: workdir base name)")
 	fl.StringVar(&f.workdir, "workdir", "", "working directory")
-	fl.StringVar(&f.launcher, "launcher", "", "launcher (M1: jar only)")
+	fl.StringVar(&f.launcher, "launcher", "", "launcher: jar|maven|gradle|custom")
 	fl.StringVar(&f.jar, "jar", "", "jar path: absolute | relative to workdir | glob")
 	fl.StringVar(&f.jdk, "jdk", "", "JDK home (M1: absolute path only)")
 	fl.StringVar(&f.port, "port", "", "port (fixed number, or \"random\")")
@@ -155,7 +155,12 @@ func runStart(cmd *cobra.Command, f *startFlags, args []string) error {
 			}
 		}
 		if len(appArgs) > 0 {
-			sp.Args = appArgs
+			if sp.Launcher == "custom" {
+				// for custom, trailing args after -- are the command argv
+				sp.Command = appArgs
+			} else {
+				sp.Args = appArgs
+			}
 		}
 		if changed("log-file") {
 			sp.LogFile = f.logFile
@@ -253,6 +258,7 @@ func specFromEntry(e appFileEntry, base string) (ipc.StartSpec, bool, error) {
 		Workdir:         workdir,
 		Launcher:        e.Launcher,
 		Jar:             e.Jar,
+		Command:         e.Command,
 		JDK:             e.JDK,
 		Port:            port,
 		Env:             e.Env,

@@ -16,9 +16,10 @@ type model struct {
 	ns     string
 	all    bool
 
-	apps   []*state.App
-	cursor int
-	selKey string // selection identity, survives list refreshes
+	apps       []*state.App
+	cursor     int
+	selKey     string // selection identity, survives list refreshes
+	listOffset int    // first visible table line (scrolling)
 
 	met     *metricsCache
 	metrics map[int32]appMetrics
@@ -181,11 +182,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.initialized = true
 		m.viewport = viewport.New(msg.Width, m.logPanelHeight())
 		m.viewport.SetContent(strings.Join(m.logLines, "\n"))
+		m.adjustOffset()
 		return m, nil
 
 	case appsMsg:
 		m.apps = msg
 		m.fixSelection()
+		m.adjustOffset()
 		m.viewport.Height = m.logPanelHeight()
 		return m, m.syncLogsCmd()
 
@@ -215,6 +218,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.applyEvent(msg.ev)
+		m.adjustOffset()
 		return m, tea.Batch(waitEventCmd(msg.gen, m.eventsCh), m.syncLogsCmd())
 
 	case eventEndMsg:
@@ -297,18 +301,21 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor > 0 {
 			m.cursor--
 			m.selKey = ""
+			m.adjustOffset()
 			return m, m.syncLogsCmd()
 		}
 	case "down", "j":
 		if m.cursor < len(m.apps)-1 {
 			m.cursor++
 			m.selKey = ""
+			m.adjustOffset()
 			return m, m.syncLogsCmd()
 		}
 	case "A":
 		m.all = !m.all
 		m.selKey = ""
 		m.cursor = 0
+		m.listOffset = 0
 		if m.eventsCancel != nil {
 			m.eventsCancel()
 		}
@@ -366,6 +373,43 @@ func (m *model) cleanup() {
 	}
 	if m.logCancel != nil {
 		m.logCancel()
+	}
+}
+
+// adjustOffset keeps the selected app inside the visible table window.
+func (m *model) adjustOffset() {
+	visible := m.tableHeight() - 1 // minus the column header
+	if visible < 1 {
+		visible = 1
+	}
+	selLine := m.cursor
+	lines := len(m.apps)
+	if m.all {
+		// group headers are interleaved lines
+		selLine, lines = 0, 0
+		lastNs := ""
+		for i, a := range m.apps {
+			if a.Spec.Namespace != lastNs {
+				lastNs = a.Spec.Namespace
+				lines++
+			}
+			if i == m.cursor {
+				selLine = lines
+			}
+			lines++
+		}
+	}
+	if m.listOffset > selLine {
+		m.listOffset = selLine
+	}
+	if selLine >= m.listOffset+visible {
+		m.listOffset = selLine - visible + 1
+	}
+	if maxOffset := lines - visible; maxOffset >= 0 && m.listOffset > maxOffset {
+		m.listOffset = maxOffset
+	}
+	if m.listOffset < 0 {
+		m.listOffset = 0
 	}
 }
 
