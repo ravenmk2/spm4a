@@ -55,6 +55,7 @@ type App struct {
 	LogPath         string         `json:"logPath,omitempty"`
 	Injected        map[string]any `json:"injected,omitempty"`
 	Restarts        int            `json:"restarts"`
+	StartedAt       time.Time      `json:"startedAt,omitempty"`
 	LastExit        *ExitInfo      `json:"lastExit,omitempty"`
 }
 

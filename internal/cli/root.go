@@ -93,6 +93,7 @@ func newRootCmd() *cobra.Command {
 		newJdkCmd(),
 		newRmCmd(),
 		newKillCmd(),
+		newTuiCmd(),
 		newDaemonCmd(),
 	)
 	return root

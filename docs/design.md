@@ -193,6 +193,7 @@ type AppSpec struct {
 type AppState struct {
     Spec        AppSpec
     PID         int                 // 进程树根 PID
+    StartedAt   time.Time           // 启动时刻（UPTIME 列数据源；旧 state.json 零值兼容）
     Status      string              // starting|ready|unready|stopping|stopped|error
     ActualPort  int
     DebugPort   int
@@ -421,8 +422,10 @@ spm4a tui [-A]
 ## 15. TUI（bubbletea）
 
 `spm4a tui`：app 列表按 namespace 分组，列示状态/端口/PID/运行时长/资源占用
-（gopsutil）；日志跟随面板；快捷键：`s` stop、`r` restart、`l` reload、`d` rm、
-`enter` 查看日志、`q` 退出。数据经 `app.list` + `events.subscribe` SSE 驱动。
+（gopsutil，进程树含子进程求和）；日志跟随面板（单条 `logs.follow(lines=200)` 通道：
+先送尾部 N 行再跟随，等价于两段式但无间隙）；快捷键：`s` stop、`r` restart、
+`l` reload、`d` rm（仅 stopped/error，y/n 确认）、`enter` 聚焦日志（esc 返回）、
+`q` 退出。数据经 `app.list` + `events.subscribe` SSE 驱动，2s tick 兜底刷新指标。
 
 ## 16. 目录结构
 

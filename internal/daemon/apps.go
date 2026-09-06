@@ -323,6 +323,7 @@ func (d *Daemon) startProcess(app *state.App, port, debugPort int, tool *toolInf
 	app.ActualPort = port
 	app.DebugPort = debugPort
 	app.Status = state.StatusStarting
+	app.StartedAt = time.Now()
 	app.LastExit = nil
 	d.procs[key] = p
 	if err := d.store.Save(spec.Namespace); err != nil {
