@@ -20,15 +20,15 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # demo-app (maven) 以 release=17 编译；demo-app-gradle 经 toolchain 17
-      # （foojay 自动供给 JDK 17）。
+      # demo-app (maven) compiles with release=17; demo-app-gradle uses toolchain 17
+      # (foojay auto-provisions JDK 17).
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
           cache: maven # 缓存 ~/.m2，加速 e2e 的 mvn package
 
-      # maven 使用 runner 自带版本（三平台均预装且在 PATH），这里显式校验并打印版本
+      # Maven comes preinstalled on all three runner images; verify and print the version.
       - name: maven
         shell: bash
         run: mvn -v

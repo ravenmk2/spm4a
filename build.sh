@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 构建 spm4a 发布二进制到 dist/（默认三 OS × amd64/arm64 全矩阵）。
-# 用法:
-#   ./build.sh                 # 全矩阵
-#   ./build.sh linux amd64     # 只构建指定平台
-#   VERSION=v0.2.0 ./build.sh  # 显式指定版本(缺省取 git describe)
+# Build spm4a release binaries into dist/ (default: all OS/arch matrix).
+# Usage:
+#   ./build.sh                  # full matrix
+#   ./build.sh linux amd64      # single platform
+#   VERSION=v0.2.0 ./build.sh   # explicit version (default: git describe)
 set -euo pipefail
 cd "$(dirname "$0")"
 

@@ -13,7 +13,7 @@ spm4a 是一个为 Agentic Coding 场景设计的 Spring Boot 应用进程管理
 - CLI 对 agent 友好：每条命令一次请求-响应、结构化输出（`--json`）、稳定退出码、
   幂等语义、无交互式提问。
 - daemon 由 CLI 按需自动拉起，对调用方透明。
-- Spring Boot 特色：自动注入配置、随机端口、基于 actuator 的健康检查与优雅停机、
+- Spring Boot 特色：自动注入配置、随机端口、基于 actuator 的就绪检查与优雅停机、
   与 devtools 热重启共存。
 
 非目标（v1）：
@@ -21,7 +21,7 @@ spm4a 是一个为 Agentic Coding 场景设计的 Spring Boot 应用进程管理
 - 多实例 / 集群（同 namespace 内 app 名唯一）。
 - 开机自启（pm2 startup 类能力）。
 - 远程管理、容器支持。
-- 从 pom.xml / gradle toolchain 自动匹配 JDK（v2 候选）。
+- 从 pom.xml / gradle toolchain 自动匹配 JDK。
 
 ## 2. 总体架构
 
@@ -50,15 +50,16 @@ spm4a 是一个为 Agentic Coding 场景设计的 Spring Boot 应用进程管理
 - 每用户全局单例。通过 namespace 实现命名空间隔离（见 §4）。
 - 运行目录：`SPM4A_HOME` 环境变量可重定位，缺省 `~/.spm4a`
   （e2e/测试用它获得完全隔离的 daemon 实例）。
-- 套接字路径（Listen/Dial 共用同一纯函数，hash8 = SPM4A_HOME 绝对路径 sha256 前 4 字节 hex）：
+- 套接字路径由纯函数计算（Listen/Dial 共用，两端必然一致）；
+  hash8 = SPM4A_HOME 绝对路径 sha256 前 4 字节 hex：
   - Linux/macOS 三级规则：
     1. `$XDG_RUNTIME_DIR` 非空 → `$XDG_RUNTIME_DIR/spm4a/spm4a-<hash8>.sock`
-       （systemd 标准 per-user runtime 目录，用户私有 0700、tmpfs 登出自清；
-       保留 hash 是因为 XDG 目录同用户共享，不同 SPM4A_HOME 实例靠它区分）；
+       （目录 0700，文件 0600；XDG 目录同用户共享，不同 SPM4A_HOME 实例靠 hash 区分）；
     2. 否则 `<SPM4A_HOME>/run/spm4a.sock`（run 目录 0700，文件 0600），
        完整路径 ≤100 字节时；
-    3. 仍超 100 → `/tmp/spm4a-<username>-<hash8>.sock` 兜底
-       （macOS `$TMPDIR` 可达 50+ 字符而 `sun_path` 上限仅 104 字节，CI 实测踩坑）。
+    3. 仍超 100 → `/tmp/spm4a-<username>-<hash8>.sock` 兜底。
+    约束来源：unix socket 的 `sun_path` 上限 104 字节（macOS）/108（Linux），
+    而 macOS `$TMPDIR` 可达 50+ 字符，故长 home 必须回退短路径。
     注记：socket 路径依赖进程 XDG_RUNTIME_DIR 环境变量，daemon 由 CLI 拉起时继承
     其环境，同会话一致；跨会话 XDG 不同（罕见）会触发安全重拉（spawn 锁兜底）。
   - Windows：命名管道 `\\.\pipe\spm4a-<username>-<hash8>`
@@ -71,11 +72,11 @@ spm4a 是一个为 Agentic Coding 场景设计的 Spring Boot 应用进程管理
 CLI 每次执行：
 
 1. 尝试连接套接字，成功则直接发请求。
-2. 失败则获取 spawn 锁（`~/.spm4a/run/spawn.lock`，gofrs/flock，跨平台）。
+2. 失败则获取 spawn 锁（`<SPM4A_HOME>/run/spawn.lock`，gofrs/flock，跨平台）。
 3. 持锁后二次尝试连接（其他 CLI 可能已完成拉起）。
 4. 仍失败则以 detach 方式启动 `spm4a daemon`
    （Unix：`Setsid`；Windows：`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`），
-   标准输出重定向到 `~/.spm4a/run/daemon.log`。
+   标准输出重定向到 `<SPM4A_HOME>/run/daemon.log`。
 5. 轮询等待 ready（默认 5s 超时），释放锁，重新连接。
 
 ### 3.3 版本协商
@@ -92,22 +93,21 @@ daemon 随之退出。下次命令再按需拉起。
 ### 3.5 状态持久化与进程收养
 
 - daemon 内存中持有全部 AppState，变更即原子写（tmp + rename）到
-  `~/.spm4a/namespaces/<namespace>/state.json`。
+  `<SPM4A_HOME>/namespaces/<namespace>/state.json`。
 - daemon 崩溃/重启后重新收养仍存活的子进程：按 state.json 中的 PID 逐一探测，
   存活则恢复管理（日志改为文件 tail，健康检查重新挂上）；已死则标记 `stopped`。
-- 收养语义全平台一致（M6 定案）：Windows 的 Job Object 不设 `KILL_ON_JOB_CLOSE`，
-  daemon 退出/崩溃不再连带杀 app，重启后正常收养；杀树一律显式 TerminateJobObject。
+- 收养语义全平台一致：Windows 的 Job Object 不设 `KILL_ON_JOB_CLOSE`，
+  daemon 退出/崩溃不连带杀 app，重启后正常收养；杀树一律显式 TerminateJobObject。
 
 ## 4. Namespace
 
 - namespace 是 app 的**纯命名标签，与目录解耦**：app 名在 namespace 内唯一，
   跨 namespace 可重名。
-- 与目录解耦的意义：**同一项目检出的并行开发**。多个 agent 会话 / 人工 + agent
+- 与目录解耦支持**同一项目检出的并行开发**：多个 agent 会话 / 人工 + agent
   在同一目录同时工作时，各自使用不同 namespace（如 `task-a` / `task-b`），
-  app 名互不冲突。若绑定目录（workspace 语义）则无法支持该场景——这是
-  弃用 workspace 命名、容忍与 K8s 撞词的原因。
+  app 名互不冲突。
 - 默认值探测：从 cwd 向上找 `.git` → `pom.xml`/`build.gradle`，取根目录名；
-  都没有则 `default`。**注意**：默认规则救不了同目录并行——并行场景必须显式指定。
+  都没有则 `default`。默认规则不解决同目录并行——并行场景必须显式指定。
 - 推荐实践：agent 每个任务设置 `SPM4A_NAMESPACE` 环境变量（如任务 ID），
   之后所有命令免 flag 自动隔离。
 - 优先级链：
@@ -126,9 +126,8 @@ CLI --namespace > SPM4A_NAMESPACE 环境变量 > spm4a-app.yaml 的 namespace: >
 ### 5.1 传输
 
 - Windows：`github.com/Microsoft/go-winio` 命名管道；Linux/macOS：标准库 `net` Unix Socket。
-- 两者都作为 `net.Listener` 交给 `http.Server`，跑标准 HTTP/1.1
-  （Docker Desktop 在 Windows 上即 HTTP over named pipe，方案成熟）。
-- 好处：无自定义帧协议；`curl --unix-socket` 可直接调试；未来若支持远程管理可平移 TCP。
+- 两者都作为 `net.Listener` 交给 `http.Server`，跑标准 HTTP/1.1。
+- 收益：无自定义帧协议；`curl --unix-socket` 可直接调试；未来若支持远程管理可平移 TCP。
 
 ### 5.2 JSON-RPC 2.0
 
@@ -200,7 +199,7 @@ type AppSpec struct {
 type AppState struct {
     Spec        AppSpec
     PID         int                 // 进程树根 PID
-    StartedAt   time.Time           // 启动时刻（UPTIME 列数据源；旧 state.json 零值兼容）
+    StartedAt   time.Time           // 启动时刻
     Status      string              // starting|ready|unready|stopping|stopped|error
     ActualPort  int
     DebugPort   int
@@ -216,7 +215,7 @@ type AppState struct {
 ### 6.2 配置文件
 
 默认文件名 **`spm4a-app.yaml`**（cwd，或 `-f` 显式指定）。**字段一律 kebab-case**；
-HTTP JSON 侧保持 camelCase，文档维护两边映射。支持单文件多 app：
+HTTP JSON 侧保持 camelCase。支持单文件多 app：
 
 ```yaml
 namespace: mall                  # 可选，缺省探测
@@ -272,20 +271,20 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 |---|---|---|
 | jar | `<jdk>/bin/java [jdwp] -jar <resolvedJar> [args]` | 直接拼 java 命令行 |
 | maven | `mvn spring-boot:run -Dspring-boot.run.jvmArguments=... -Dspring-boot.run.arguments=...` | 两层进程：Maven JVM → fork 的应用 JVM |
-| gradle | `gradle bootRun [--args=...] [-I spm4a-init.gradle]` | debug 参数经临时 init script 注入 `bootRun.jvmArgs` |
+| gradle | `gradle bootRun [--args=...] [-I spm4a-init.gradle]` | JVM 参数经临时 init script 注入 `bootRun.jvmArgs` |
 | custom | 用户命令原样执行 | 注入仅通过 env |
 
 进程树管理（maven/gradle 模式存在孙进程）：
 
 - Unix：子进程 `Setpgid`，信号发 `-pgid` 覆盖整棵树。
 - Windows：子进程挂入 Job Object，需要杀树时显式 `TerminateJobObject`
-  （**不使用** `KILL_ON_JOB_CLOSE`——否则 daemon 退出会连带杀光 app，收养失效）。
+  （不使用 `KILL_ON_JOB_CLOSE`，否则 daemon 退出会连带杀光 app，收养失效）。
 
 ## 8. Spring Boot 注入
 
 ### 8.1 注入通道
 
-主通道为 **`SPRING_APPLICATION_JSON` 环境变量**：三种 launcher 统一（只传 env，
+主通道为 **`SPRING_APPLICATION_JSON` 环境变量**：四种 launcher 统一（只传 env，
 不用各自拼参数），优先级高于 `application.properties`、低于命令行参数——
 用户显式 `args` 永远生效。用户已自带该变量时解析 JSON 后合并（用户键优先）。
 
@@ -309,14 +308,14 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
   现场探测一次。
 - jar：直接拼 java 参数；maven：`-Dspring-boot.run.jvmArguments`；
   gradle：临时 init script 设置 `bootRun.jvmArgs`。
-- 禁用 `JAVA_TOOL_OPTIONS` 方案（会污染 Maven/Gradle 自身 JVM 造成端口冲突）。
+- 不使用 `JAVA_TOOL_OPTIONS`（会污染 Maven/Gradle 自身 JVM 造成端口冲突）。
 
 ### 8.4 JVM 参数
 
 - 直接项 `xms` / `xmx`：缺省注入 `-Xms32M -Xmx256M`（agent 并行起多实例时 JVM 默认
   xmx=物理内存 1/4 太浪费；最小 Boot 4 应用堆占用百兆级，256M 有余量）。
   显式空串关闭该项注入（回退 JVM 自身默认）。校验 `^\d+[kKmMgG]$`，非法值在
-  start 校验期报 -32602。其余常用项（gc、xss 等）暂不开直接项，按需后补。
+  start 校验期报 -32602。其余项（gc、xss 等）走 jvm-opts。
 - 自由项 `jvm-opts`（yaml 列表）/ `--jvm-opt`（CLI 可重复 flag，一 flag 一参数，
   避免引号内空格切分歧义）。
 - 合成顺序：`[jdwp agent（若 debug）] + [xms/xmx] + [jvm-opts]`，按 launcher 走
@@ -339,9 +338,9 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 ### 10.1 就绪检查（actuator）
 
 - 就绪：先等 TCP 可连，再轮询 `GET http://127.0.0.1:<port><healthPath>` 直到 UP
-  （默认 60s 超时，可配），状态转 **`ready`**（对齐 actuator readiness 探针语义）。
+  （默认 60s 超时，可配），状态转 `ready`。
 - 存活：周期探测（默认 5s）；连续失败超过容忍窗口（默认 3 次）标记 `unready`，
-  **不自动杀**——进程异常由 agent 看日志决策。
+  不自动杀——进程异常由 agent 看日志决策。
 - 容忍窗口同时覆盖 devtools 热重启期间 context 短暂不可用，避免误判。
 - `spm4a health <name>` 透传 actuator health 原始 JSON。
 
@@ -353,9 +352,9 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 3. 等待 `shutdownTimeout`（默认 15s）后仍未退出 → 强杀（`SIGKILL` / TerminateProcess）。
 4. `stop --now` 跳过优雅阶段直接强杀。
 
-实现注记：
+注记：
 
-- 停机端点路径固定 `/actuator/shutdown`，不跟随自定义 management base-path（v1 不参数化）。
+- 停机端点路径固定 `/actuator/shutdown`，不跟随自定义 management base-path。
 - `POST /actuator/shutdown` 成功但应用在 shutdownTimeout 内未退出时，不再补信号、
   直接强杀。
 
@@ -366,7 +365,6 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 
 - `spm4a reload <name>`：在 workdir 执行编译（maven → `mvn compile`，gradle →
   `gradle classes`），触发 devtools 热重启；阻塞返回编译结果与随后 health 状态。
-  agent 的"改码 → reload → 验证"闭环由一条命令完成。
 - JDWP HotSwap（方法体级）随 `--debug` 注入的 JDWP 天然可用，spm4a 不额外处理。
 
 ## 12. 多 JDK 支持
@@ -379,8 +377,7 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
     版本以 `java -version` 实测为准）、PATH、`~/.sdkman`、`~/.jdks`、
     `/usr/lib/jvm`、`Program Files\Java`、mise/asdf 等常见位置。
   - `spm4a jdk ls` / `spm4a jdk add <path>`。
-  - 登记时执行一次 `java -version` 并缓存 major version 与完整版本号
-    （arch 字符串解析不可靠，v1 不缓存架构）。
+  - 登记时执行一次 `java -version` 并缓存 major version 与完整版本号（不缓存架构）。
 - **引用**：AppSpec `jdk` 字段接受绝对路径 / 注册表名 / major 版本号
   （多个匹配取最高 patch）；缺省回退 `JAVA_HOME` → PATH。
 - **生效路径**：jar 模式直接用 `<jdkHome>/bin/java`；maven/gradle 模式给子进程
@@ -396,9 +393,9 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 - 轮转：单文件 10MB，保留 3 份。文件名含 `${pid}`/`${ts}` 时每次启动都是新文件，
   轮转天然不触发。
 - `spm4a logs <name> [--lines 200]` 读文件；`-f` 走 `logs.follow` SSE 流，
-  由 daemon tail 推送。daemon 在 AppState.LogPath 中记录实际生效的绝对路径，
-  CLI 无需知道路径规则。
-- daemon 自身日志：`~/.spm4a/run/daemon.log`。
+  由 daemon tail 推送（支持 `lines` 参数：先送尾部 N 行再跟随）。
+  daemon 在 AppState.LogPath 中记录实际生效的绝对路径，CLI 无需知道路径规则。
+- daemon 自身日志：`<SPM4A_HOME>/run/daemon.log`。
 
 ## 14. CLI 命令全集
 
@@ -427,44 +424,38 @@ spm4a tui [-A]
 - 退出码：`0` 成功；`1` 通用错误；`2` 用法/参数错误（含 -32602）；`3` app 不存在（-32001）；
   `4` 冲突类（-32002 app 已存在、-32004 端口冲突）；`5` daemon 不可用；`6` 就绪检查未通过/超时（-32006）。
 - `--json` 模式下错误以 JSON 输出到 stderr：
-  `{"error":{"code":-32001,"message":"...","exitCode":3}}`，stdout 保持纯数据，
-  agent 按退出码分流即可。
+  `{"error":{"code":-32001,"message":"...","exitCode":3}}`，stdout 保持纯数据。
 
 ## 15. TUI（bubbletea）
 
 `spm4a tui`：app 列表按 namespace 分组，列示状态/端口/PID/运行时长/资源占用
-（gopsutil，进程树含子进程求和）；日志跟随面板（单条 `logs.follow(lines=200)` 通道：
-先送尾部 N 行再跟随，等价于两段式但无间隙）；快捷键：`s` stop、`r` restart、
-`l` reload、`d` rm（仅 stopped/error，y/n 确认）、`enter` 聚焦日志（esc 返回）、
-`q` 退出。数据经 `app.list` + `events.subscribe` SSE 驱动，2s tick 兜底刷新指标。
+（gopsutil，进程树含子进程求和）；日志跟随面板（`logs.follow(lines=200)`：
+先送尾部 N 行再跟随）；快捷键：`s` stop、`r` restart、`l` reload、
+`d` rm（仅 stopped/error，y/n 确认）、`enter` 聚焦日志（esc 返回）、`q` 退出。
+数据经 `app.list` + `events.subscribe` SSE 驱动，2s tick 兜底刷新指标；
+非 TTY 环境运行报清晰错误。
 
-## 16. 目录结构
+## 16. 工程结构
 
 运行时（用户目录；应用日志不在此，落在各 app 的 workdir）：
 
 ```
-~/.spm4a/
-  run/               # spm4a.sock, daemon.json, daemon.log, spawn.lock
+~/.spm4a/                    # 即 SPM4A_HOME
+  run/                       # daemon.json, daemon.log, spawn.lock（socket 位置见 §3.1）
   jdks.json
   namespaces/<ns>/
     state.json
 ```
 
-应用侧（每个 app 的 workdir）：
-
-```
-<workdir>/logs/<app>.log      # 默认, 可被 log-file 表达式覆盖
-```
-
-Go 工程：
+仓库：
 
 ```
 cmd/spm4a/main.go
 internal/
-  ipc/       # HTTP over pipe/UDS 传输、JSON-RPC 编解码、SSE 流
-  daemon/    # daemon server、生命周期、事件总线
-  proc/      # 进程树监督、端口池、日志重定向与轮转
-  launcher/  # jar / maven / gradle / custom、jar 路径与 glob 解析
+  ipc/       # HTTP over pipe/UDS 传输、JSON-RPC 编解码、SSE 流、socket 路径纯函数
+  daemon/    # daemon server、生命周期、事件总线、自动拉起
+  proc/      # 进程树监督（pgid / Job Object）、端口池、日志重定向与轮转
+  launcher/  # jar / maven / gradle / custom、jar 路径与 glob 解析、JVM 参数合成
   inject/    # SPRING_APPLICATION_JSON 合并、JDWP
   health/    # actuator 客户端
   state/     # 数据模型与持久化
@@ -472,25 +463,26 @@ internal/
   cli/       # 各命令实现
   tui/       # bubbletea 界面
 e2e/
-  demo-app/                # 内置极简 Spring Boot 4 测试应用
-    pom.xml                # web + actuator, Java 17+
-    src/main/java/com/spm4a/demo/DemoApplication.java
-    src/main/resources/application.properties
-    spm4a-app.yaml         # dogfood 配置样例（亦可作用户文档示例）
-  e2e_test.go              # 端到端测试：驱动真实 spm4a 二进制 + demo-app
+  demo-app/                # Maven 构建的 Spring Boot 4 测试应用（附 spm4a-app.yaml 样例）
+  demo-app-gradle/         # Gradle 构建的同款测试应用
+  *_test.go                # 端到端测试：驱动真实 spm4a 二进制 + demo 应用
+build.sh                   # 发布构建：全平台二进制 + 版本戳 + checksums，输出到 dist/
+.github/workflows/
+  test.yml                 # push/PR(main/master/develop)：三平台 build/vet/gofmt/test
+  release.yml              # tag v*：构建并发布 GitHub Release
 ```
 
-### 16.1 内置测试应用 demo-app
+### 16.1 测试应用 demo-app
 
-- 极简 Spring Boot 4 应用（Spring Framework 7，Java 17+）：依赖仅
-  `spring-boot-starter-web` + `spring-boot-starter-actuator`，
-  提供一个 `GET /hello` 端点。
+- 极简 Spring Boot 4 应用（Java 17+）：依赖仅 `spring-boot-starter-web` +
+  `spring-boot-starter-actuator` + `spring-boot-devtools`，提供一个 `GET /hello` 端点。
 - 故意不预设任何配置：`application.properties` 不写 `server.port`、不写
   management 暴露——e2e 借此验证 spm4a 的随机端口与注入清单真实生效。
-- e2e 流程：`mvn -q package` 构建一次 → `spm4a start`（随机端口、阻塞至 ready）→
-  `health` 断言 UP → `curl /hello` 断言可用 → `stop` 断言优雅停机且进程退出 →
-  断言 `<workdir>/logs/` 日志文件生成。无 Maven/JDK 的环境自动 skip。
-- 日常调试也可直接 `spm4a start -f e2e/demo-app/spm4a-app.yaml` 手动把玩。
+- e2e 主流程：构建 → `start`（随机端口、阻塞至 ready）→ `health` 断言 UP →
+  调 `/hello` → `reload`（maven/gradle 模式，PID 不变的热重启）→
+  `stop` 断言优雅停机 → 断言日志文件与进程树清理。无 Maven/JDK/Gradle 的环境
+  自动 skip 对应用例。
+- 日常调试可直接 `spm4a start -f e2e/demo-app/spm4a-app.yaml`。
 
 ## 17. 技术选型
 
@@ -505,28 +497,14 @@ e2e/
 | 日志 | 标准库 `log/slog` |
 | Windows Job Object | `golang.org/x/sys/windows` |
 
-## 18. 里程碑
+## 18. 已知限制
 
-1. **M1 骨架**：HTTP/JSON-RPC IPC + daemon 拉起/退出 + state 持久化 + jar launcher +
-   `start/stop/ls`（固定端口）+ demo-app 与首条 e2e。
-2. **M2 Spring 特色**：随机端口 + SPRING_APPLICATION_JSON 注入 + JVM 参数
-   （xms/xmx/jvm-opts，§8.4）+ actuator 就绪检查 + 优雅停机序列。
-3. **M3 构建工具**：maven/gradle launcher、进程树管理、`reload`、`logs -f`（SSE）。
-4. **M4 JDK**：注册表、多 JDK 引用、debug 注入（含 JDK 8/9+ 语法适配）。
-5. **M5 TUI**。
-6. **M6 打磨**：配置文件完善、错误码与 `--json` 全覆盖、跨平台 e2e（Windows/Linux/macOS CI）。
-
-## 19. 开放问题与已知限制
-
-- gradle init script 已知限制：鸭子类型匹配（init classpath 拿不到 Boot 插件类）、
-  jvmArgs 覆盖语义、仅匹配名为 `bootRun` 的任务；CI（demo-app-gradle + 三平台矩阵）
-  提供真实验证环境，首轮 CI 观察后即可关闭本项。
-- custom launcher 的就绪检查仍走 actuator health：非 Spring 进程会超时失败。
-  如需任意进程支持，可考虑 `health-path: ""` 显式降级为纯 TCP 判定。
-- devtools 热重启与就绪检查容忍窗口（5s × 3 次）：maven e2e 的 reload 路径实测
-  无误判，保持现状，待真实负载反馈再调。
-- 日志表达式含 `${pid}` 时走管道转发（启动后才知 pid），daemon 崩溃后子进程
-  写满管道会阻塞；默认表达式不含 pid 不受影响。后续可改为固定文件名 + 元数据记录 pid。
+- gradle init script：鸭子类型匹配（init classpath 拿不到 Boot 插件类），jvmArgs 为
+  覆盖语义，仅匹配名为 `bootRun` 的任务；重度定制 bootRun（多 task / 改名 task）无效。
+- custom launcher 的就绪检查走 actuator health：非 Spring 进程会超时失败（v1 的
+  就绪模型面向 Spring Boot）。
 - maven/gradle 的 args 与 jvmArguments 通道均为空格切分单字符串，含空格的参数不支持。
+- 日志表达式含 `${pid}` 时走管道转发（启动后才知 pid），daemon 崩溃后子进程
+  写满管道会阻塞；默认表达式不含 pid 不受影响。
 - gradle daemon 驻留：stop 后 Gradle Daemon JVM 按 Gradle 设计保持存活（不占应用端口）；
   强杀路径（TerminateJobObject）会连带 gradle daemon，属可接受的强制语义。

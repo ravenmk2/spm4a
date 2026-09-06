@@ -1,0 +1,30 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # build.sh cross-compiles the full OS/arch matrix; VERSION = tag name (e.g. v0.1.0)
+      - name: build release binaries
+        run: ./build.sh
+        env:
+          VERSION: ${{ github.ref_name }}
+
+      - name: publish github release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

@@ -1,20 +1,20 @@
-# 本地构建/发布产物
+# Local build / release artifacts
 /spm4a
 /spm4a.exe
 /dist/
 
-# Go 测试产物
+# Go test artifacts
 *.test
 *.out
 
-# 演示应用构建产物
+# Demo app build outputs
 e2e/demo-app/target/
 e2e/demo-app/logs/
 e2e/demo-app-gradle/build/
 e2e/demo-app-gradle/.gradle/
 e2e/demo-app-gradle/logs/
 
-# IDE 与操作系统杂项
+# IDE and OS noise
 .idea/
 .vscode/
 .DS_Store
