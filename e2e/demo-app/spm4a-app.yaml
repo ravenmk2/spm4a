@@ -1,0 +1,9 @@
+# spm4a 配置示例（亦可直接 dogfood）：
+#   spm4a start -f e2e/demo-app/spm4a-app.yaml
+namespace: demo
+apps:
+  - name: demo-app
+    workdir: .            # 相对本 yaml 所在目录
+    launcher: jar
+    jar: target/*.jar     # glob 必须恰好命中 1 个（先 mvn package）
+    port: 8080            # M1 仅支持固定端口；random 在 M2
