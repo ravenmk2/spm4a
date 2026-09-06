@@ -54,6 +54,8 @@ func (f *fakeClient) ListApps(context.Context, string, bool) ([]*state.App, erro
 	return out, nil
 }
 
+func (f *fakeClient) DaemonInfo(context.Context) (string, error) { return "0.1.0-fake", nil }
+
 func (f *fakeClient) StopApp(_ context.Context, ns, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -241,5 +243,42 @@ func TestTuiListScrolls(t *testing.T) {
 		sendKey(tm, 'j')
 	}
 	w.wait(t, ">app-09")
+	quit(t, tm)
+}
+
+func TestTuiBorderLayout(t *testing.T) {
+	fc := newFakeClient()
+	fc.apps = []*state.App{fakeApp("test", "demo-app", "ready")}
+
+	tm := newTestModel(t, fc, "test", false)
+	w := newWatcher(tm)
+	// header bar: brand left, context right (ns filter, daemon version, count)
+	w.wait(t, "spm4a")
+	w.wait(t, "ns: test")
+	w.wait(t, "0.1.0-fake")
+	w.wait(t, "apps: 1")
+	// rounded panels with embedded titles
+	w.wait(t, "╭")
+	w.wait(t, "╰")
+	w.wait(t, " Apps(test) ")
+	w.wait(t, " Logs: test/demo-app ")
+
+	// focusing the logs panel marks its title
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	w.wait(t, " Logs: test/demo-app * ")
+	// esc returns to the list
+	tm.Send(tea.KeyMsg{Type: tea.KeyEscape})
+	quit(t, tm)
+}
+
+func TestTuiLogsCollapsedOnTinyTerminal(t *testing.T) {
+	fc := newFakeClient()
+	fc.apps = []*state.App{fakeApp("test", "demo-app", "ready")}
+
+	tm := teatest.NewTestModel(t, tui.NewModel(fc, "test", false), teatest.WithInitialTermSize(120, 8))
+	time.Sleep(200 * time.Millisecond)
+	w := newWatcher(tm)
+	w.wait(t, "demo-app")
+	w.wait(t, "terminal too small")
 	quit(t, tm)
 }

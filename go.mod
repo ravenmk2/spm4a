@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/exp/teatest v0.0.0-20260906004030-3986e9119cf9
 	github.com/gofrs/flock v0.13.1
+	github.com/muesli/reflow v0.3.0
 	github.com/shirou/gopsutil/v4 v4.26.8
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.47.0

@@ -18,11 +18,11 @@ func newStopCmd() *cobra.Command {
 		Short: "Stop an app",
 		Args:  exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ns, err := resolveNamespace("")
+			cl, err := rpcClient(cmd.Context())
 			if err != nil {
 				return err
 			}
-			cl, err := rpcClient(cmd.Context())
+			ns, err := resolveTarget(cmd.Context(), cl, args[0])
 			if err != nil {
 				return err
 			}
@@ -54,11 +54,11 @@ func newRestartCmd() *cobra.Command {
 		Short: "Full process restart",
 		Args:  exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ns, err := resolveNamespace("")
+			cl, err := rpcClient(cmd.Context())
 			if err != nil {
 				return err
 			}
-			cl, err := rpcClient(cmd.Context())
+			ns, err := resolveTarget(cmd.Context(), cl, args[0])
 			if err != nil {
 				return err
 			}

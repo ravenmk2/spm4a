@@ -25,3 +25,27 @@ spm4a ls                             # 查看
 spm4a logs -f my-app                 # 跟随日志
 spm4a tui                            # 仪表盘
 ```
+
+## 配置示例（spm4a-app.yaml）
+
+```yaml
+namespace: mall                  # 可选，缺省探测（git 根目录 > 构建文件 > default）
+apps:
+  - name: order-service          # 可选，缺省取 workdir 目录名
+    workdir: services/order      # 必填；相对路径相对本文件所在目录
+    launcher: jar                # jar | maven | gradle | custom
+    jar: target/*.jar            # launcher=jar；绝对路径 | 相对 workdir | glob（须唯一命中）
+    command: ["./run.sh"]        # launcher=custom 时使用
+    jdk: "17"                    # JDK 绝对路径 | 注册表名 | major 版本号（建议加引号）
+    port: random                 # random | 8080
+    debug: true                  # true=随机调试端口 | 5005 | false
+    env: { SPRING_PROFILES_ACTIVE: dev }
+    args: ["--my.flag=x"]        # 应用参数，永远赢过自动注入
+    health-path: /actuator/health
+    shutdown-timeout: 15s
+    restart-policy: never        # never | on-failure | always
+    log-file: ./logs/${name}.log # 缺省即此；支持 ${name} ${namespace} ${workdir} ${pid} ${ts}
+    xms: 64M                     # 缺省 32M；"" 关闭注入
+    xmx: 512M                    # 缺省 256M；"" 关闭注入
+    jvm-opts: ["-XX:TieredStopAtLevel=1"]
+```

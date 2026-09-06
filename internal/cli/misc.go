@@ -18,11 +18,11 @@ func newRmCmd() *cobra.Command {
 		Short: "Remove an app from management (must be stopped)",
 		Args:  exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ns, err := resolveNamespace("")
+			cl, err := rpcClient(cmd.Context())
 			if err != nil {
 				return err
 			}
-			cl, err := rpcClient(cmd.Context())
+			ns, err := resolveTarget(cmd.Context(), cl, args[0])
 			if err != nil {
 				return err
 			}
@@ -80,11 +80,11 @@ func newHealthCmd() *cobra.Command {
 		Short: "Pass through the actuator health JSON",
 		Args:  exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ns, err := resolveNamespace("")
+			cl, err := rpcClient(cmd.Context())
 			if err != nil {
 				return err
 			}
-			cl, err := rpcClient(cmd.Context())
+			ns, err := resolveTarget(cmd.Context(), cl, args[0])
 			if err != nil {
 				return err
 			}

@@ -12,6 +12,8 @@ import (
 
 // Client abstracts the daemon RPC surface the TUI needs; tests inject a fake.
 type Client interface {
+	// DaemonInfo returns the daemon version (for the header bar).
+	DaemonInfo(ctx context.Context) (string, error)
 	ListApps(ctx context.Context, ns string, all bool) ([]*state.App, error)
 	StopApp(ctx context.Context, ns, name string) error
 	RestartApp(ctx context.Context, ns, name string) error
@@ -37,6 +39,16 @@ type IPCClient struct {
 }
 
 func NewIPCClient(c *ipc.Client) *IPCClient { return &IPCClient{C: c} }
+
+func (c *IPCClient) DaemonInfo(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var res ipc.PingResult
+	if err := c.C.Call(ctx, "daemon.ping", nil, &res); err != nil {
+		return "", err
+	}
+	return res.Version, nil
+}
 
 func (c *IPCClient) ListApps(ctx context.Context, ns string, all bool) ([]*state.App, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

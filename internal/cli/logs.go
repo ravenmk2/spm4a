@@ -17,11 +17,11 @@ func newLogsCmd() *cobra.Command {
 		Short: "Show app logs (-f to follow)",
 		Args:  exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ns, err := resolveNamespace("")
+			cl, err := rpcClient(cmd.Context())
 			if err != nil {
 				return err
 			}
-			cl, err := rpcClient(cmd.Context())
+			ns, err := resolveTarget(cmd.Context(), cl, args[0])
 			if err != nil {
 				return err
 			}

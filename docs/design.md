@@ -86,14 +86,21 @@ CLI 每次执行：
 
 ### 3.4 空闲退出
 
-**无 app 且无客户端连接时立即退出。** 判定时机：每次 app 数变为 0 或客户端断开时检查。
-TUI / `logs -f` 等长连接视为客户端，能阻止退出；最后一个 app 停止且 TUI 也已退出时，
-daemon 随之退出。下次命令再按需拉起。
+由 `<SPM4A_HOME>/config.yaml` 的 `idle-exit` 字段配置：
+
+- `immediate`（默认）：无 app 且无客户端连接时立即退出；
+- `never`：永不因空闲退出（`spm4a kill` 始终可关闭）；
+- `10m` / `30s` 等 duration：条件满足后延迟到点退出；期间条件被破坏
+  （新 app / 新客户端连接）取消计时。
+
+判定时机：app 数变为 0 或客户端断开时检查。TUI / `logs -f` 等长连接视为客户端。
+缺文件/缺字段按 `immediate`；非法值记 daemon.log 警告并按 `immediate`。
 
 ### 3.5 状态持久化与进程收养
 
 - daemon 内存中持有全部 AppState，变更即原子写（tmp + rename）到
-  `<SPM4A_HOME>/namespaces/<namespace>/state.json`。
+  `<SPM4A_HOME>/namespaces/<namespace>/state.json`；文件顶层为 `{"apps": [...]}` 包装
+  （为将来顶层元数据留位），旧格式（裸数组）读取兼容，下次保存自动迁移。
 - daemon 崩溃/重启后重新收养仍存活的子进程：按 state.json 中的 PID 逐一探测，
   存活则恢复管理（日志改为文件 tail，健康检查重新挂上）；已死则标记 `stopped`。
 - 收养语义全平台一致：Windows 的 Job Object 不设 `KILL_ON_JOB_CLOSE`，
@@ -117,7 +124,9 @@ CLI --namespace > SPM4A_NAMESPACE 环境变量 > spm4a-app.yaml 的 namespace: >
 ```
 
 - 命名约束：`[A-Za-z0-9._-]+`（namespace 名会落到 state 目录路径）。
-- `ls / status / logs / stop ...` 默认只作用于当前 namespace；`ls -A` 跨 namespace 列出。
+- 各命令默认只作用于当前 namespace；全局 `-A` / `--all-namespace` 跨 namespace：
+  `ls`/`tui` 展示全部；单 app 命令按名跨 namespace 解析——恰好一个匹配才执行，
+  多个报歧义错误（退出码 2）并列出候选，零个按 app 不存在（退出码 3）。
 - 端口池、JDK 注册表为机器级资源，全局共享；daemon 侧状态（state.json）按 namespace
   分目录。应用日志不跟随 namespace，而是基于每个 app 的 workdir（见 §13）。
 
@@ -420,10 +429,12 @@ spm4a rm <name>                 # 从管理中移除（需先停止）
 spm4a jdk scan|ls|add
 spm4a kill [--all]              # 关闭 daemon
 spm4a tui [-A]
-全局: --json  --namespace      # 亦可用 SPM4A_NAMESPACE 环境变量
+全局: --json  --namespace  -A/--all-namespace   # namespace 亦可用 SPM4A_NAMESPACE 环境变量
 ```
 
 - `start` 默认阻塞至 `ready`（agent 友好），`--no-wait` 立即返回。
+- `-A/--all-namespace`：`ls`/`tui` 跨 namespace 展示；单 app 命令跨 namespace 按名解析，
+  恰好一个匹配才执行，多个报歧义错误（退出码 2）并列出候选。
 - 退出码：`0` 成功；`1` 通用错误；`2` 用法/参数错误（含 -32602）；`3` app 不存在（-32001）；
   `4` 冲突类（-32002 app 已存在、-32004 端口冲突）；`5` daemon 不可用；`6` 就绪检查未通过/超时（-32006）。
 - `--json` 模式下错误以 JSON 输出到 stderr：
@@ -431,12 +442,14 @@ spm4a tui [-A]
 
 ## 15. TUI（bubbletea）
 
-`spm4a tui`：app 列表按 namespace 分组，列示状态/端口/PID/运行时长/资源占用
-（gopsutil，进程树含子进程求和）；日志跟随面板（`logs.follow(lines=200)`：
-先送尾部 N 行再跟随）；快捷键：`s` stop、`r` restart、`l` reload、
-`d` rm（仅 stopped/error，y/n 确认）、`enter` 聚焦日志（esc 返回）、`q` 退出。
-数据经 `app.list` + `events.subscribe` SSE 驱动，2s tick 兜底刷新指标；
-非 TTY 环境运行报清晰错误。
+`spm4a tui`：k9s 风格边框布局——顶部 header 条（spm4a 标识 + namespace/版本/计数
+上下文）；Apps 面板与 Logs 面板均为圆角边框内嵌标题（` Apps(ns) ` / ` Logs: ns/name `），
+日志聚焦时标题加 `*` 标记且边框变色；小终端自动折叠 Logs 面板。
+app 列示状态/端口/PID/运行时长/资源占用（gopsutil，进程树含子进程求和）；
+日志走 `logs.follow(lines=200)`（先送尾部 N 行再跟随）；快捷键：`s` stop、
+`r` restart、`l` reload、`d` rm（仅 stopped/error，y/n 确认）、`enter` 聚焦日志
+（esc 返回）、`A` 切换全 namespace、`q` 退出。数据经 `app.list` +
+`events.subscribe` SSE 驱动，2s tick 兜底刷新指标；非 TTY 环境运行报清晰错误。
 
 ## 16. 工程结构
 
@@ -445,9 +458,10 @@ spm4a tui [-A]
 ```
 ~/.spm4a/                    # 即 SPM4A_HOME
   run/                       # daemon.json, daemon.log, spawn.lock（socket 位置见 §3.1）
+  config.yaml                # daemon 配置：idle-exit（见 §3.4）
   jdks.json
   namespaces/<ns>/
-    state.json
+    state.json               # 顶层 {"apps": [...]} 包装
 ```
 
 仓库：

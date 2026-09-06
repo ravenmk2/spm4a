@@ -18,6 +18,7 @@ import (
 var (
 	flagJSON      bool
 	flagNamespace string
+	flagAllNs     bool
 )
 
 type usageError struct{ err error }
@@ -102,6 +103,7 @@ func newRootCmd() *cobra.Command {
 	pf.StringVar(&flagNamespace, "namespace", "", "namespace (alias --ns; env SPM4A_NAMESPACE)")
 	pf.StringVar(&flagNamespace, "ns", "", "alias of --namespace")
 	_ = pf.MarkHidden("ns")
+	pf.BoolVarP(&flagAllNs, "all-namespace", "A", false, "operate across all namespaces (ls/tui list all; single-app commands resolve name globally)")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return &usageError{err} })
 	root.AddCommand(
 		newStartCmd(),

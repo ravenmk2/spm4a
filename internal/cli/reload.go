@@ -16,11 +16,11 @@ func newReloadCmd() *cobra.Command {
 		Short: "Compile in workdir to trigger a devtools hot restart (maven/gradle apps)",
 		Args:  exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ns, err := resolveNamespace("")
+			cl, err := rpcClient(cmd.Context())
 			if err != nil {
 				return err
 			}
-			cl, err := rpcClient(cmd.Context())
+			ns, err := resolveTarget(cmd.Context(), cl, args[0])
 			if err != nil {
 				return err
 			}

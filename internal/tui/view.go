@@ -6,20 +6,24 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/truncate"
 
 	"spm4a/internal/state"
 )
 
 var (
-	styleHeader    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	styleGroup     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("8"))
-	styleSelected  = lipgloss.NewStyle().Reverse(true)
-	styleStatusBar = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
-	styleErr       = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	styleDim       = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	styleReady     = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
-	styleUnready   = lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // yellow
-	styleError     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // red
+	styleHeader      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	styleGroup       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("8"))
+	styleSelected    = lipgloss.NewStyle().Reverse(true)
+	styleStatusBar   = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+	styleErr         = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	styleDim         = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	styleReady       = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
+	styleUnready     = lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // yellow
+	styleError       = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // red
+	styleBorder      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	styleBorderFocus = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+	stylePanelTitle  = lipgloss.NewStyle().Bold(true)
 )
 
 func statusStyled(s string) string {
@@ -41,14 +45,90 @@ func (m *model) View() string {
 		return "loading…"
 	}
 	var b strings.Builder
-	b.WriteString(m.renderTable())
+	b.WriteString(m.renderHeader())
 	b.WriteString("\n")
-	b.WriteString(styleGroup.Render(strings.Repeat("─", min(m.width, 200))))
+	b.WriteString(m.renderAppsPanel())
 	b.WriteString("\n")
-	b.WriteString(m.viewport.View())
+	if m.logsCollapsed() {
+		b.WriteString(styleDim.Render("logs collapsed (terminal too small)"))
+	} else {
+		b.WriteString(m.renderLogsPanel())
+	}
 	b.WriteString("\n")
 	b.WriteString(m.renderStatusBar())
 	return b.String()
+}
+
+func (m *model) renderHeader() string {
+	left := styleHeader.Render("spm4a")
+	nsLabel := "ns: " + m.ns
+	if m.all {
+		nsLabel = "all namespaces"
+	}
+	ver := m.daemonVersion
+	if ver == "" {
+		ver = "?"
+	}
+	right := styleDim.Render(fmt.Sprintf("%s • v%s • apps: %d", nsLabel, ver, len(m.apps)))
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + right
+}
+
+// panel draws a rounded border with the title embedded in the top edge.
+func panel(title, content string, width int, focused bool) string {
+	bs := styleBorder
+	if focused {
+		bs = styleBorderFocus
+	}
+	if width < 10 {
+		width = 10
+	}
+	innerW := width - 2
+	var b strings.Builder
+	// top: ╭─ title ──…──╮
+	dashCount := width - lipgloss.Width(title) - 5
+	if dashCount < 1 {
+		title = truncate.String(title, uint(max(width-5, 1)))
+		dashCount = 1
+	}
+	b.WriteString(bs.Render("╭─ ") + stylePanelTitle.Render(title) + bs.Render(" "+strings.Repeat("─", dashCount)+"╮"))
+	b.WriteString("\n")
+	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+		if w := lipgloss.Width(line); w > innerW {
+			line = truncate.String(line, uint(innerW))
+			w = innerW
+		} else {
+			line += strings.Repeat(" ", innerW-w)
+		}
+		b.WriteString(bs.Render("│") + line + bs.Render("│"))
+		b.WriteString("\n")
+	}
+	b.WriteString(bs.Render("╰" + strings.Repeat("─", innerW) + "╯"))
+	return b.String()
+}
+
+func (m *model) renderAppsPanel() string {
+	nsLabel := m.ns
+	if m.all {
+		nsLabel = "all"
+	}
+	title := fmt.Sprintf(" Apps(%s) ", nsLabel)
+	return panel(title, m.renderTable(), m.width, false)
+}
+
+func (m *model) renderLogsPanel() string {
+	name := m.logKey
+	if name == "" {
+		name = "-"
+	}
+	title := " Logs: " + name + " "
+	if m.focusLogs {
+		title += "* "
+	}
+	return panel(title, m.viewport.View(), m.width, m.focusLogs)
 }
 
 func (m *model) renderTable() string {
@@ -76,7 +156,7 @@ func (m *model) renderTable() string {
 		}
 		lines = append(lines, m.renderRow(i, a))
 	}
-	visible := m.tableHeight() - 1
+	visible := m.appsRows() - 1 // minus the column header
 	if visible < 1 {
 		visible = 1
 	}
@@ -91,9 +171,6 @@ func (m *model) renderTable() string {
 	for _, l := range lines[start:end] {
 		b.WriteString(l)
 		b.WriteString("\n")
-	}
-	if end < len(lines) {
-		b.WriteString(styleDim.Render(fmt.Sprintf("  ↓ %d more", len(lines)-end)))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

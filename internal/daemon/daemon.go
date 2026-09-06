@@ -71,7 +71,7 @@ func Run(home string) error {
 		procs:      map[string]*proc.Proc{},
 		probes:     map[string]context.CancelFunc{},
 	}
-	d.idle = newIdleTracker(d.initiateShutdown)
+	d.idle = newIdleTracker(d.initiateShutdown, loadIdlePolicy(home, log))
 	d.adopt()
 
 	d.srv = ipc.NewServer()

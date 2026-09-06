@@ -1,6 +1,7 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -33,10 +34,7 @@ func Load(dir string) (*Store, error) {
 		if err != nil {
 			continue
 		}
-		var apps []*App
-		if err := json.Unmarshal(data, &apps); err != nil {
-			continue
-		}
+		apps := parseStateFile(data)
 		m := map[string]*App{}
 		for _, a := range apps {
 			if a != nil && a.Spec.Name != "" {
@@ -47,6 +45,33 @@ func Load(dir string) (*Store, error) {
 		s.nss[e.Name()] = m
 	}
 	return s, nil
+}
+
+// stateFile is the wrapped on-disk shape: {"apps": [...]}. The top-level
+// object leaves room for future metadata.
+type stateFile struct {
+	Apps []*App `json:"apps"`
+}
+
+// parseStateFile reads both the wrapped format and the legacy bare array,
+// so older state files keep loading (they are rewritten wrapped on save).
+func parseStateFile(data []byte) []*App {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	if trimmed[0] == '[' {
+		var apps []*App
+		if err := json.Unmarshal(trimmed, &apps); err != nil {
+			return nil
+		}
+		return apps
+	}
+	var f stateFile
+	if err := json.Unmarshal(trimmed, &f); err != nil {
+		return nil
+	}
+	return f.Apps
 }
 
 func (s *Store) Get(ns, name string) (*App, bool) {
@@ -113,7 +138,7 @@ func (s *Store) Save(ns string) error {
 		list = append(list, a)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Spec.Name < list[j].Spec.Name })
-	data, err := json.MarshalIndent(list, "", "  ")
+	data, err := json.MarshalIndent(stateFile{Apps: list}, "", "  ")
 	if err != nil {
 		return err
 	}

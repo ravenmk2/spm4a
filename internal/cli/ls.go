@@ -8,10 +8,9 @@ import (
 )
 
 func newLsCmd() *cobra.Command {
-	var all bool
-	c := &cobra.Command{
+	return &cobra.Command{
 		Use:   "ls",
-		Short: "List apps in the current namespace",
+		Short: "List apps in the current namespace (-A for all)",
 		Args:  exactArgs(0, ""),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ns, err := resolveNamespace("")
@@ -25,7 +24,7 @@ func newLsCmd() *cobra.Command {
 			var res struct {
 				Apps []*state.App `json:"apps"`
 			}
-			if err := cl.Call(cmd.Context(), "app.list", ipc.ListParams{Namespace: ns, All: all}, &res); err != nil {
+			if err := cl.Call(cmd.Context(), "app.list", ipc.ListParams{Namespace: ns, All: flagAllNs}, &res); err != nil {
 				return err
 			}
 			if flagJSON {
@@ -35,8 +34,6 @@ func newLsCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().BoolVarP(&all, "all", "A", false, "list across all namespaces")
-	return c
 }
 
 func newStatusCmd() *cobra.Command {
@@ -45,11 +42,11 @@ func newStatusCmd() *cobra.Command {
 		Short: "Show app status",
 		Args:  exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ns, err := resolveNamespace("")
+			cl, err := rpcClient(cmd.Context())
 			if err != nil {
 				return err
 			}
-			cl, err := rpcClient(cmd.Context())
+			ns, err := resolveTarget(cmd.Context(), cl, args[0])
 			if err != nil {
 				return err
 			}

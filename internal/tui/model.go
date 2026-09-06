@@ -41,6 +41,8 @@ type model struct {
 	statusMsg string
 	statusErr bool
 
+	daemonVersion string
+
 	width, height int
 	initialized   bool
 }
@@ -73,6 +75,7 @@ type actionMsg struct {
 	text string
 	err  bool
 }
+type daemonInfoMsg struct{ version string }
 type tickMsg time.Time
 
 // NewModel builds the TUI model around an injectable Client.
@@ -88,7 +91,15 @@ func Run(ctx context.Context, client Client, ns string, all bool) error {
 }
 
 func (m *model) Init() tea.Cmd {
-	return tea.Batch(m.fetchApps, m.subscribeEventsCmd(), tickCmd())
+	return tea.Batch(m.fetchDaemonInfo, m.fetchApps, m.subscribeEventsCmd(), tickCmd())
+}
+
+func (m *model) fetchDaemonInfo() tea.Msg {
+	v, err := m.client.DaemonInfo(context.Background())
+	if err != nil {
+		return daemonInfoMsg{""}
+	}
+	return daemonInfoMsg{v}
 }
 
 func keyOf(ns, name string) string { return ns + "/" + name }
@@ -180,7 +191,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.initialized = true
-		m.viewport = viewport.New(msg.Width, m.logPanelHeight())
+		m.viewport = viewport.New(msg.Width-2, m.viewportHeight())
 		m.viewport.SetContent(strings.Join(m.logLines, "\n"))
 		m.adjustOffset()
 		return m, nil
@@ -189,7 +200,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.apps = msg
 		m.fixSelection()
 		m.adjustOffset()
-		m.viewport.Height = m.logPanelHeight()
+		m.viewport.Height = m.viewportHeight()
 		return m, m.syncLogsCmd()
 
 	case metricsMsg:
@@ -252,6 +263,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actionMsg:
 		m.statusMsg, m.statusErr = msg.text, msg.err
 		return m, m.fetchApps
+
+	case daemonInfoMsg:
+		m.daemonVersion = msg.version
+		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -378,7 +393,7 @@ func (m *model) cleanup() {
 
 // adjustOffset keeps the selected app inside the visible table window.
 func (m *model) adjustOffset() {
-	visible := m.tableHeight() - 1 // minus the column header
+	visible := m.appsRows() - 1 // minus the column header
 	if visible < 1 {
 		visible = 1
 	}
@@ -472,7 +487,7 @@ func (m *model) applyEvent(ev AppEvent) {
 			}
 		}
 		m.fixSelection()
-		m.viewport.Height = m.logPanelHeight()
+		m.viewport.Height = m.viewportHeight()
 		return
 	}
 	if ev.App == nil {
@@ -486,7 +501,7 @@ func (m *model) applyEvent(ev AppEvent) {
 	}
 	m.apps = append(m.apps, ev.App)
 	m.fixSelection()
-	m.viewport.Height = m.logPanelHeight()
+	m.viewport.Height = m.viewportHeight()
 }
 
 func (m *model) appendLog(chunk string) {
@@ -507,31 +522,47 @@ func (m *model) refreshViewport() {
 	m.viewport.GotoBottom()
 }
 
-// logPanelHeight: the table takes what it needs (capped), logs get the rest.
-func (m *model) logPanelHeight() int {
-	table := m.tableHeight()
-	h := m.height - table - 2 // status bar + separator
-	if h < 3 {
-		h = 3
-	}
-	return h
-}
-
-func (m *model) tableHeight() int {
-	rows := len(m.apps) + 1 // header
+// appsRows: content rows of the Apps panel, including the column header.
+// The panel is capped near half the screen; the rest goes to Logs.
+func (m *model) appsRows() int {
+	total := len(m.apps) + 1
 	if m.all {
 		groups := map[string]bool{}
 		for _, a := range m.apps {
 			groups[a.Spec.Namespace] = true
 		}
-		rows += len(groups)
+		total += len(groups)
 	}
-	maxH := m.height/2 - 1
-	if maxH < 4 {
-		maxH = 4
+	if total < 2 {
+		total = 2 // header + "(no apps)" line
 	}
-	if rows > maxH {
-		rows = maxH
+	cap := m.height/2 - 3
+	if cap < 2 {
+		cap = 2
 	}
-	return rows
+	if total > cap {
+		total = cap
+	}
+	return total
+}
+
+// logPanelHeight: viewport content rows inside the Logs panel. Layout:
+// header(1) + status(1) + apps panel (appsRows + 2 borders) + logs borders(2).
+func (m *model) logPanelHeight() int {
+	h := m.height - 6 - m.appsRows()
+	if h < 0 {
+		return 0
+	}
+	return h
+}
+
+// logsCollapsed: under very short terminals the Apps panel wins and the Logs
+// panel collapses to a placeholder line.
+func (m *model) logsCollapsed() bool { return m.logPanelHeight() < 2 }
+
+func (m *model) viewportHeight() int {
+	if h := m.logPanelHeight(); h > 0 {
+		return h
+	}
+	return 1
 }

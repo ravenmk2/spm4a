@@ -11,10 +11,9 @@ import (
 )
 
 func newTuiCmd() *cobra.Command {
-	var all bool
-	c := &cobra.Command{
+	return &cobra.Command{
 		Use:   "tui",
-		Short: "Interactive terminal UI",
+		Short: "Interactive terminal UI (-A for all namespaces)",
 		Args:  exactArgs(0, ""),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
@@ -28,9 +27,7 @@ func newTuiCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return tui.Run(cmd.Context(), tui.NewIPCClient(cl), ns, all)
+			return tui.Run(cmd.Context(), tui.NewIPCClient(cl), ns, flagAllNs)
 		},
 	}
-	c.Flags().BoolVarP(&all, "all", "A", false, "show apps across all namespaces")
-	return c
 }

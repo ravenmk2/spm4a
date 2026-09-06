@@ -6,22 +6,25 @@ import (
 )
 
 // idleTracker exits the daemon when there are no active apps and no
-// connected clients (in-flight requests incl. SSE subscriptions). A short
-// grace delay lets the final response flush and a follow-up request arrive.
+// connected clients (in-flight requests incl. SSE subscriptions). The policy
+// (config.yaml idle-exit) selects immediate (short grace to flush the final
+// response), never, or a delayed exit; daemon.shutdown forces a prompt exit
+// regardless.
 type idleTracker struct {
 	mu       sync.Mutex
 	inflight int
 	apps     int
 	seen     bool
 	force    bool
+	policy   idlePolicy
 	timer    *time.Timer
 	onIdle   func()
 }
 
 const idleGrace = 200 * time.Millisecond
 
-func newIdleTracker(onIdle func()) *idleTracker {
-	return &idleTracker{onIdle: onIdle}
+func newIdleTracker(onIdle func(), policy idlePolicy) *idleTracker {
+	return &idleTracker{onIdle: onIdle, policy: policy}
 }
 
 func (t *idleTracker) enter() {
@@ -61,7 +64,12 @@ func (t *idleTracker) checkLocked() {
 		t.timer.Stop()
 		t.timer = nil
 	}
-	if t.force || (t.seen && t.inflight == 0 && t.apps == 0) {
+	switch {
+	case t.force:
 		t.timer = time.AfterFunc(idleGrace, t.onIdle)
+	case t.policy.never:
+		// idle-exit: never — only daemon.shutdown exits the daemon
+	case t.seen && t.inflight == 0 && t.apps == 0:
+		t.timer = time.AfterFunc(t.policy.delay, t.onIdle)
 	}
 }
