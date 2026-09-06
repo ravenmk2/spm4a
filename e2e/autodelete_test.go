@@ -37,6 +37,16 @@ func TestEphemeralLifecycle(t *testing.T) {
 	}
 	spm, _ := setup(t, "e2e-ephemeral")
 
+	// Keep the daemon alive when idle: with the default immediate idle-exit,
+	// the crash below makes the daemon exit by itself before we can observe
+	// the error state (the respawn on the next command then drops the dead
+	// ephemeral record right away — that behavior is what this test asserts,
+	// but it needs a deterministic sequence to do so).
+	if err := os.WriteFile(filepath.Join(os.Getenv("SPM4A_HOME"), "config.yaml"),
+		[]byte("idle-exit: never"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	t.Cleanup(func() {
 		spm.run("stop", "demo-eph", "--now")
 		spm.run("stop", "demo-keep", "--now")

@@ -534,3 +534,7 @@ build.sh                   # 发布构建：全平台二进制 + 版本戳 + che
   写满管道会阻塞；默认表达式不含 pid 不受影响。
 - gradle daemon 驻留：stop 后 Gradle Daemon JVM 按 Gradle 设计保持存活（不占应用端口）；
   强杀路径（TerminateJobObject）会连带 gradle daemon，属可接受的强制语义。
+- ephemeral（默认）+ immediate 空闲退出（默认）的组合下：app 崩溃后 daemon 会因无活跃
+  app 立即退出，error 记录在下一次 daemon 拉起的收养阶段被清除——即崩溃后 `ls` 可能
+  直接看不到该 app；其日志文件仍在 `<workdir>/logs/` 可查。需要留痕排查的场景用
+  `ephemeral: false` 或 `idle-exit: never`。
