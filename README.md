@@ -44,6 +44,7 @@ apps:
     health-path: /actuator/health
     shutdown-timeout: 15s
     restart-policy: never        # never | on-failure | always
+    ephemeral: false             # 缺省 true：stop 后不保留记录（收养不受影响）；长驻应用显式 false
     log-file: ./logs/${name}.log # 缺省即此；支持 ${name} ${namespace} ${workdir} ${pid} ${ts}
     xms: 64M                     # 缺省 32M；"" 关闭注入
     xmx: 512M                    # 缺省 256M；"" 关闭注入

@@ -30,6 +30,7 @@ type startFlags struct {
 	jvmOpts    []string
 	timeout    time.Duration
 	noWait     bool
+	ephemeral  bool
 }
 
 func newStartCmd() *cobra.Command {
@@ -61,6 +62,7 @@ func newStartCmd() *cobra.Command {
 	fl.StringArrayVar(&f.jvmOpts, "jvm-opt", nil, "extra JVM option (repeatable, one arg per flag)")
 	fl.DurationVar(&f.timeout, "timeout", 60*time.Second, "ready wait timeout")
 	fl.BoolVar(&f.noWait, "no-wait", false, "return immediately without waiting for readiness")
+	fl.BoolVar(&f.ephemeral, "ephemeral", true, "delete the app record after stop")
 	return c
 }
 
@@ -185,6 +187,9 @@ func runStart(cmd *cobra.Command, f *startFlags, args []string) error {
 			sp.Debug = dbg
 			sp.DebugPort = dport
 		}
+		if changed("ephemeral") {
+			sp.Ephemeral = &f.ephemeral
+		}
 
 		if sp.Workdir == "" {
 			return usageErr("workdir is required (pass [dir], --workdir, or use %s)", appFileName)
@@ -271,6 +276,7 @@ func specFromEntry(e appFileEntry, base string) (ipc.StartSpec, bool, error) {
 		JvmOpts:         e.JvmOpts,
 		Debug:           debug,
 		DebugPort:       debugPort,
+		Ephemeral:       e.Ephemeral,
 	}
 	return sp, set, nil
 }

@@ -23,6 +23,7 @@ type appView struct {
 		Name      string `json:"name"`
 		Namespace string `json:"namespace"`
 		Launcher  string `json:"launcher"`
+		Ephemeral bool   `json:"ephemeral"`
 	} `json:"spec"`
 	Status          string         `json:"status"`
 	PID             int            `json:"pid"`
@@ -204,7 +205,10 @@ func TestDemoAppLifecycle(t *testing.T) {
 		t.Errorf("demo-custom resolvedJvmOpts = %v, want %v", custom.ResolvedJvmOpts, wantOpts)
 	}
 	spm.mustOK("stop", "demo-custom")
-	spm.mustOK("rm", "demo-custom")
+	// ephemeral is the default: stop already removed the record
+	if out, code := spm.run("rm", "demo-custom"); code != 3 {
+		t.Fatalf("rm after stop (ephemeral) exited %d, want 3\n%s", code, out)
+	}
 
 	// ---- 7. fixed port conflict -> exit 4 ----
 	fixedPort := freePort(t)
@@ -218,7 +222,9 @@ func TestDemoAppLifecycle(t *testing.T) {
 	}
 	spm.mustOK("rm", "demo-fixed2") // failed start leaves an error entry; removable
 	spm.mustOK("stop", "demo-fixed")
-	spm.mustOK("rm", "demo-fixed")
+	if out, code := spm.run("rm", "demo-fixed"); code != 3 {
+		t.Fatalf("rm after stop (ephemeral) exited %d, want 3\n%s", code, out)
+	}
 
 	// ---- 8. graceful stop of the main app ----
 	spm.mustOK("stop", "demo-app")
@@ -243,8 +249,7 @@ func TestDemoAppLifecycle(t *testing.T) {
 		t.Errorf("app log lacks startup banner")
 	}
 
-	// ---- 9. rm, empty ls, kill ----
-	spm.mustOK("rm", "demo-app")
+	// ---- 9. ephemeral default already removed the record at stop; ls empty, kill ----
 	out = spm.mustOK("ls", "--json")
 	if !strings.Contains(out, `"apps": []`) {
 		t.Errorf("expected empty app list after rm, got %s", out)
@@ -385,7 +390,6 @@ func TestMavenLauncherLifecycle(t *testing.T) {
 		t.Errorf("maven app log lacks graceful shutdown evidence")
 	}
 
-	spm.mustOK("rm", "demo-maven")
 	spm.mustOK("kill")
 }
 
@@ -497,7 +501,6 @@ func TestGradleLauncherLifecycle(t *testing.T) {
 		}
 	}
 
-	spm.mustOK("rm", "demo-gradle")
 	spm.mustOK("kill")
 }
 

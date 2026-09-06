@@ -328,6 +328,8 @@ func (d *Daemon) startProcess(app *state.App, port, debugPort int, tool *toolInf
 	app.LogPath = logPath
 	app.Injected = injected
 	app.PID = p.PID()
+	ct, _ := proc.CreateTimeMillis(p.PID())
+	app.ProcStartedAt = ct
 	app.ActualPort = port
 	app.DebugPort = debugPort
 	app.Status = state.StatusStarting
@@ -399,6 +401,7 @@ func (d *Daemon) failApp(app *state.App, code int) {
 	case state.StatusStarting, state.StatusReady, state.StatusUnready:
 		app.Status = state.StatusError
 		app.PID = 0
+		app.ProcStartedAt = 0
 		app.LastExit = &state.ExitInfo{Code: code, At: time.Now()}
 		_ = d.store.Save(app.Spec.Namespace)
 	default: // stopping/stopped: the stop flow owns the final state
@@ -429,6 +432,7 @@ func (d *Daemon) watch(key string, p *proc.Proc) {
 			app.Status = state.StatusError
 		}
 		app.PID = 0
+		app.ProcStartedAt = 0
 		_ = d.store.Save(ns)
 	}
 	d.mu.Unlock()
@@ -549,8 +553,17 @@ func (d *Daemon) stopApp(app *state.App, timeout time.Duration, now bool) {
 	}
 
 	d.mu.Lock()
+	if app.Spec.Ephemeral {
+		// Ephemeral app: the record goes away with the stop.
+		_ = d.store.Delete(ns, name)
+		d.mu.Unlock()
+		d.publish(EventAppDeleted, ns, name, nil)
+		d.refreshApps()
+		return
+	}
 	app.Status = state.StatusStopped
 	app.PID = 0
+	app.ProcStartedAt = 0
 	_ = d.store.Save(ns)
 	d.mu.Unlock()
 	d.publish(EventAppStatus, ns, name, app)

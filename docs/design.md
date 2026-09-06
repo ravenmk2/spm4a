@@ -103,6 +103,12 @@ CLI 每次执行：
   （为将来顶层元数据留位），旧格式（裸数组）读取兼容，下次保存自动迁移。
 - daemon 崩溃/重启后重新收养仍存活的子进程：按 state.json 中的 PID 逐一探测，
   存活则恢复管理（日志改为文件 tail，健康检查重新挂上）；已死则标记 `stopped`。
+- 收养校验 **PID + 进程启动时间**（spawn 时经 gopsutil `CreateTime` 记录，unix ms）：
+  启动时间不匹配说明 PID 已被复用，按已死处理；无该字段的旧记录回退纯 PID 探测。
+- `ephemeral`（默认 true）记录不超越进程存亡：stop 完成后删除（发 `app.deleted`
+  事件）；daemon 重启时仍存活的进程照常收养，已退出（含 error）的记录直接丢弃。
+  进程管理本身不受 ephemeral 影响。长驻应用显式 `ephemeral: false` 以保留
+  停止/错误记录。
 - 收养语义全平台一致：Windows 的 Job Object 不设 `KILL_ON_JOB_CLOSE`，
   daemon 退出/崩溃不连带杀 app，重启后正常收养；杀树一律显式 TerminateJobObject。
 
@@ -203,11 +209,13 @@ type AppSpec struct {
     Xmx            string            // 物化值如 "256M"；"" = 不注入
     // （RPC/yaml 层用 *string 区分"未设置"与"显式关闭"，daemon 校验期物化）
     JvmOpts        []string          // 自由 JVM 参数
+    Ephemeral      bool              // 临时实例（默认 true）：stop 后删除记录；收养不受影响（§3.5）
 }
 
 type AppState struct {
     Spec        AppSpec
     PID         int                 // 进程树根 PID
+    ProcStartedAt int64              // 进程启动时间(unix ms)，收养时防 PID 复用
     StartedAt   time.Time           // 启动时刻
     Status      string              // starting|ready|unready|stopping|stopped|error
     ActualPort  int
@@ -241,6 +249,7 @@ apps:
     health-path: /actuator/health
     shutdown-timeout: 15s
     restart-policy: never
+    ephemeral: false               # 缺省 true：stop 后不保留记录（收养不受影响）；长驻应用显式 false
     log-file: ./logs/${name}.log # 可省，默认值即如此
     xms: 64M                     # 可省，缺省 32M；显式 "" 关闭注入
     xmx: 512M                    # 可省，缺省 256M；显式 "" 关闭注入
@@ -415,17 +424,17 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 spm4a start [dir] [-f spm4a-app.yaml] [--only name] [--name n] [--namespace ns]
             [--workdir path] [--launcher jar|maven|gradle|custom] [--jar path]
             [--jdk 17] [--port N|random] [--debug[=port]] [--env K=V]...
-            [--xms 64M] [--xmx 512M] [--jvm-opt "-XX:..."]...
+            [--xms 64M] [--xmx 512M] [--jvm-opt "-XX:..."]... [--ephemeral=false]
             [--health-path p] [--log-file path] [--timeout 60s] [--no-wait]
             [--] [args...]
-spm4a stop <name> [--now] [--timeout 15s]
+spm4a stop <name> [--now] [--timeout 15s]   # 或 stop --all：当前 namespace 全部（-A 跨全部）
 spm4a restart <name>            # 完整进程重启
 spm4a reload <name>             # 编译触发 devtools 热重启
 spm4a ls [-A]                   # 默认当前 namespace
 spm4a status <name>
 spm4a logs <name> [-f] [--lines 200]
 spm4a health <name>
-spm4a rm <name>                 # 从管理中移除（需先停止）
+spm4a rm <name>                 # 删除已停止 app 的记录；rm --all 批量（-A 跨全部）
 spm4a jdk scan|ls|add
 spm4a kill [--all]              # 关闭 daemon
 spm4a tui [-A]

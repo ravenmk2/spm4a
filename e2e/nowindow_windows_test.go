@@ -56,6 +56,5 @@ func TestNoConsoleWindowOnWindows(t *testing.T) {
 	}
 
 	spm.mustOK("stop", "demo-nowin")
-	spm.mustOK("rm", "demo-nowin")
 	spm.mustOK("kill")
 }

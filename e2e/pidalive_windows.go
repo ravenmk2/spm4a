@@ -15,3 +15,8 @@ func pidAlive(pid int) bool {
 	}
 	return strings.Contains(string(out), strconv.Itoa(pid))
 }
+
+// killPidTree force-kills a process and its children (orphan cleanup).
+func killPidTree(pid int) {
+	_ = exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F").Run()
+}

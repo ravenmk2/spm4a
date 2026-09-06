@@ -200,6 +200,10 @@ func specFromRPC(sp *ipc.StartSpec) (*state.Spec, error) {
 		}
 		shutdownTimeout = t
 	}
+	ephemeral := true
+	if sp.Ephemeral != nil {
+		ephemeral = *sp.Ephemeral
+	}
 	return &state.Spec{
 		Name:            sp.Name,
 		Namespace:       sp.Namespace,
@@ -219,6 +223,7 @@ func specFromRPC(sp *ipc.StartSpec) (*state.Spec, error) {
 		Debug:           sp.Debug,
 		DebugPort:       sp.DebugPort,
 		Command:         sp.Command,
+		Ephemeral:       ephemeral,
 	}, nil
 }
 

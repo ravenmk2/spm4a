@@ -31,6 +31,7 @@ type appFileEntry struct {
 	Xmx             *string           `yaml:"xmx"`
 	JvmOpts         []string          `yaml:"jvm-opts"`
 	Debug           any               `yaml:"debug"`
+	Ephemeral       *bool             `yaml:"ephemeral"` // nil = 默认 true
 }
 
 type appFile struct {

@@ -21,6 +21,7 @@ type StartSpec struct {
 	JvmOpts         []string          `json:"jvmOpts,omitempty"`
 	Debug           bool              `json:"debug,omitempty"`
 	DebugPort       int               `json:"debugPort,omitempty"` // 0 = random from pool
+	Ephemeral       *bool             `json:"ephemeral,omitempty"` // nil = default true
 }
 
 type StartParams struct {

@@ -37,6 +37,7 @@ type Spec struct {
 	JvmOpts         []string          `json:"jvmOpts,omitempty"`
 	Debug           bool              `json:"debug,omitempty"`
 	DebugPort       int               `json:"debugPort,omitempty"` // 0 = random from pool
+	Ephemeral       bool              `json:"ephemeral"`           // 临时实例(默认 true)：stop 后删记录；收养不受影响
 }
 
 type ExitInfo struct {
@@ -47,6 +48,7 @@ type ExitInfo struct {
 type App struct {
 	Spec            Spec           `json:"spec"`
 	PID             int            `json:"pid,omitempty"`
+	ProcStartedAt   int64          `json:"procStartedAt,omitempty"` // 进程启动时间(unix ms)，收养时防 PID 复用
 	Status          string         `json:"status"`
 	ActualPort      int            `json:"actualPort,omitempty"`
 	DebugPort       int            `json:"debugPort,omitempty"`

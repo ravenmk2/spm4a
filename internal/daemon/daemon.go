@@ -135,9 +135,32 @@ func (d *Daemon) adopt() {
 	d.mu.Lock()
 	changed := map[string]bool{}
 	var adoptKeys []string
+	// adoptAlive verifies a recorded PID: with a stored process start time the
+	// check is exact (guards against PID reuse); legacy records without it
+	// fall back to a plain liveness probe.
+	adoptAlive := func(pid int, ctMillis int64) bool {
+		if pid == 0 {
+			return false
+		}
+		if ctMillis == 0 {
+			return proc.Alive(pid)
+		}
+		return proc.MatchesCreateTime(pid, ctMillis)
+	}
 	for _, app := range d.store.List("", true) {
+		alive := app.Active() && adoptAlive(app.PID, app.ProcStartedAt)
+		if app.Spec.Ephemeral && !alive {
+			// Ephemeral records never outlive the process: dead (or already
+			// stopped/error) at daemon start -> drop the residue.
+			if err := d.store.Delete(app.Spec.Namespace, app.Spec.Name); err != nil {
+				d.log.Warn("drop dead ephemeral app", "app", app.Spec.Name, "err", err)
+			}
+			changed[app.Spec.Namespace] = true
+			continue
+		}
 		if !app.Active() {
 			app.PID = 0
+			app.ProcStartedAt = 0
 			continue
 		}
 		healthPath := app.Spec.HealthPath
@@ -146,9 +169,10 @@ func (d *Daemon) adopt() {
 			app.Spec.HealthPath = healthPath
 		}
 		switch {
-		case app.PID == 0 || !proc.Alive(app.PID):
+		case !alive:
 			app.Status = state.StatusStopped
 			app.PID = 0
+			app.ProcStartedAt = 0
 		case app.ActualPort > 0 && healthUp(app.ActualPort, healthPath):
 			app.Status = state.StatusReady
 		default:

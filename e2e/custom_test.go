@@ -78,12 +78,12 @@ func TestCustomLauncher(t *testing.T) {
 		}
 		return true
 	}, "port is closed after stop (custom)")
-	spm.mustOK("rm", "demo-custom")
 	spm.mustOK("kill")
 }
 
 // TestDaemonKillAdoption: `spm4a kill` (without --all) must leave apps
-// running; the next daemon start re-adopts them per §3.5.
+// running; the next daemon start re-adopts them per §3.5. The app is
+// non-ephemeral so its record survives the daemon restart.
 func TestDaemonKillAdoption(t *testing.T) {
 	if _, err := exec.LookPath("mvn"); err != nil {
 		t.Skip("mvn not found in PATH, skipping e2e")
@@ -101,7 +101,7 @@ func TestDaemonKillAdoption(t *testing.T) {
 	})
 
 	spm.mustOK("start", "-f", filepath.Join(demoDir, "spm4a-app.yaml"),
-		"--name", "demo-adopt", "--port", "random", "--timeout", "120s")
+		"--name", "demo-adopt", "--ephemeral=false", "--port", "random", "--timeout", "120s")
 	before := spm.status("demo-adopt")
 	if before.Status != "ready" || before.PID == 0 {
 		t.Fatalf("unexpected start state: %+v", before)

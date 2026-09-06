@@ -169,7 +169,10 @@ func TestJdkReferenceAndDebug(t *testing.T) {
 			t.Errorf("%s: javaBin = %q, want %q", name, app.JavaBin, wantJavaBin)
 		}
 		spm.mustOK("stop", name)
-		spm.mustOK("rm", name)
+		// ephemeral default: stop already removed the record
+		if out, code := spm.run("rm", name); code != 3 {
+			t.Fatalf("rm after stop (ephemeral) exited %d, want 3\n%s", code, out)
+		}
 	}
 
 	// debug with a random port: JDWP handshake against the allocated port
@@ -187,7 +190,6 @@ func TestJdkReferenceAndDebug(t *testing.T) {
 	}
 	jdwpHandshake(t, dbg.DebugPort)
 	spm.mustOK("stop", "demo-dbg")
-	spm.mustOK("rm", "demo-dbg")
 
 	// debug with a fixed port
 	fixedDebug := freePort(t)
@@ -199,7 +201,6 @@ func TestJdkReferenceAndDebug(t *testing.T) {
 	}
 	jdwpHandshake(t, fixedDebug)
 	spm.mustOK("stop", "demo-dbgfixed")
-	spm.mustOK("rm", "demo-dbgfixed")
 
 	spm.mustOK("kill")
 }
