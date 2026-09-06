@@ -19,7 +19,9 @@ import (
 	"spm4a/internal/state"
 )
 
-const Version = "0.1.0"
+// Version 由 build.sh 经 -ldflags "-X spm4a/internal/daemon.Version=..." 注入；
+// 裸 go build 时保持该默认值。
+var Version = "0.1.0"
 
 type Daemon struct {
 	home       string

@@ -93,6 +93,7 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "spm4a",
 		Short:         "Spring Boot application process manager",
+		Version:       daemon.Version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}

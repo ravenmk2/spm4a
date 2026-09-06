@@ -4,35 +4,16 @@ package ipc
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"net"
 	"os"
-	"os/user"
-	"path/filepath"
-	"strings"
 	"time"
 
 	winio "github.com/Microsoft/go-winio"
 )
 
 func (e Endpoint) pipeName() string {
-	abs, err := filepath.Abs(e.Home)
-	if err != nil {
-		abs = e.Home
-	}
-	sum := sha256.Sum256([]byte(abs))
-	name := os.Getenv("USERNAME")
-	if u, err := user.Current(); err == nil && u.Username != "" {
-		name = u.Username
-	}
-	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
-		name = name[i+1:]
-	}
-	if name == "" {
-		name = "user"
-	}
-	return `\\.\pipe\spm4a-` + name + "-" + hex.EncodeToString(sum[:4])
+	username, hash8 := e.identity()
+	return `\\.\pipe\spm4a-` + username + "-" + hash8
 }
 
 func (e Endpoint) Address() string { return e.pipeName() }

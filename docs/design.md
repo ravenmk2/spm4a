@@ -50,9 +50,18 @@ spm4a 是一个为 Agentic Coding 场景设计的 Spring Boot 应用进程管理
 - 每用户全局单例。通过 namespace 实现命名空间隔离（见 §4）。
 - 运行目录：`SPM4A_HOME` 环境变量可重定位，缺省 `~/.spm4a`
   （e2e/测试用它获得完全隔离的 daemon 实例）。
-- 套接字路径：
-  - Linux/macOS：`<SPM4A_HOME>/run/spm4a.sock`（目录 0700）
-  - Windows：命名管道 `\\.\pipe\spm4a-<username>-<hash8(SPM4A_HOME绝对路径)>`
+- 套接字路径（Listen/Dial 共用同一纯函数，hash8 = SPM4A_HOME 绝对路径 sha256 前 4 字节 hex）：
+  - Linux/macOS 三级规则：
+    1. `$XDG_RUNTIME_DIR` 非空 → `$XDG_RUNTIME_DIR/spm4a/spm4a-<hash8>.sock`
+       （systemd 标准 per-user runtime 目录，用户私有 0700、tmpfs 登出自清；
+       保留 hash 是因为 XDG 目录同用户共享，不同 SPM4A_HOME 实例靠它区分）；
+    2. 否则 `<SPM4A_HOME>/run/spm4a.sock`（run 目录 0700，文件 0600），
+       完整路径 ≤100 字节时；
+    3. 仍超 100 → `/tmp/spm4a-<username>-<hash8>.sock` 兜底
+       （macOS `$TMPDIR` 可达 50+ 字符而 `sun_path` 上限仅 104 字节，CI 实测踩坑）。
+    注记：socket 路径依赖进程 XDG_RUNTIME_DIR 环境变量，daemon 由 CLI 拉起时继承
+    其环境，同会话一致；跨会话 XDG 不同（罕见）会触发安全重拉（spawn 锁兜底）。
+  - Windows：命名管道 `\\.\pipe\spm4a-<username>-<hash8>`
     （go-winio，ACL 限当前用户；默认 SPM4A_HOME 下保持每用户单例，
     测试设置 SPM4A_HOME 即获得独立管道）
 - 元信息文件 `<SPM4A_HOME>/run/daemon.json`：`{pid, version, startedAt}`，用于校验存活与版本。
