@@ -279,6 +279,9 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 - Unix：子进程 `Setpgid`，信号发 `-pgid` 覆盖整棵树。
 - Windows：子进程挂入 Job Object，需要杀树时显式 `TerminateJobObject`
   （不使用 `KILL_ON_JOB_CLOSE`，否则 daemon 退出会连带杀光 app，收养失效）。
+- Windows 子进程一律以 `CREATE_NO_WINDOW` 创建：daemon 自身以 DETACHED_PROCESS
+  运行（无控制台），否则系统会为控制台子系统子进程新分配一个可见终端窗口。
+  覆盖 app 启动、reload 编译、daemon 侧 JDK 探测全部 spawn 路径。
 
 ## 8. Spring Boot 注入
 

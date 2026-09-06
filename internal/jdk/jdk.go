@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"spm4a/internal/proc"
 )
 
 type Entry struct {
@@ -113,7 +115,9 @@ func Probe(home string) (version string, major int, err error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "-version").CombinedOutput()
+	cmd := exec.CommandContext(ctx, bin, "-version")
+	proc.HideConsole(cmd) // may run inside the console-less daemon
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", 0, fmt.Errorf("java -version: %w", err)
 	}

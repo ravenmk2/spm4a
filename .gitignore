@@ -1,7 +1,7 @@
 # Local build / release artifacts
 /spm4a
-/spm4a.exe
 /dist/
+*.exe
 
 # Go test artifacts
 *.test

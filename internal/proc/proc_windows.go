@@ -5,6 +5,7 @@ package proc
 import (
 	"os/exec"
 	"sync"
+	"syscall"
 
 	"golang.org/x/sys/windows"
 )
@@ -18,7 +19,22 @@ type treeHandle struct {
 	job windows.Handle
 }
 
-func setStartAttrs(*exec.Cmd) {}
+// createNoWindow: the daemon runs DETACHED_PROCESS (console-less), so a
+// console-subsystem child would otherwise get a fresh console window.
+// All daemon-spawned processes are headless (stdout/stderr go to the log
+// file / capture buffer).
+const createNoWindow = 0x08000000
+
+// HideConsole prevents a console window for one-shot commands (e.g. jdk
+// probing via java -version). Orthogonal to Job Object tree management.
+func HideConsole(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= createNoWindow
+}
+
+func setStartAttrs(cmd *exec.Cmd) { HideConsole(cmd) }
 
 func newTreeHandle(cmd *exec.Cmd) treeHandle {
 	job, err := newJobObject()

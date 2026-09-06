@@ -15,6 +15,9 @@ func setStartAttrs(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// HideConsole is a no-op on Unix (no console window concept).
+func HideConsole(*exec.Cmd) {}
+
 func newTreeHandle(*exec.Cmd) treeHandle { return treeHandle{} }
 
 func (t treeHandle) terminate(pid int) error { return syscall.Kill(-pid, syscall.SIGTERM) }
