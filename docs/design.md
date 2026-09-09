@@ -457,7 +457,7 @@ spm4a tui [-A]
 
 `spm4a tui`：k9s 风格边框布局——顶部 header 条（`SPM4A` 标识 + namespace/版本/计数
 上下文）；主体左右分栏：左侧窄栏（≤36 列）上为 Apps 面板（紧凑列表：名字 + 彩色
-状态），下为 Detail 面板（选中 app 的配置与状态属性，可滚动）；右侧为 Logs 面板
+状态；`-A` 时名字显示为 `<ns>/<name>`，与 CLI 输出一致），下为 Detail 面板（选中 app 的配置与状态属性，可滚动）；右侧为 Logs 面板
 （stdout/stderr 实时输出，viewport 支持滚动与翻页）。各面板均为直角边框内嵌标题、
 内容留一列左边距
 （` Apps(ns) ` / ` Detail: ns/name ` / ` Logs: ns/name `），聚焦的面板标题加 `*`

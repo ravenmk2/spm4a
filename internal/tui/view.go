@@ -14,7 +14,6 @@ import (
 
 var (
 	styleHeader      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	styleGroup       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("8"))
 	styleSelected    = lipgloss.NewStyle().Reverse(true)
 	styleStatusBar   = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 	styleErr         = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
@@ -147,21 +146,17 @@ func (m *model) renderLogsPanel() string {
 }
 
 // renderTable renders the compact app list (name + colored status), padded to
-// exactly appsRows() lines so the left column keeps its height.
+// exactly appsRows() lines so the left column keeps its height. In -A mode
+// names are shown as <ns>/<name> instead of using group headers.
 func (m *model) renderTable() string {
 	var lines []string
 	lines = append(lines, styleHeader.Render(padRight("NAME", m.nameWidth())+"STATUS"))
 	if len(m.apps) == 0 {
 		lines = append(lines, styleDim.Render("(no apps — spm4a start ...)"))
 	} else {
-		var rows []string
-		lastNs := ""
+		rows := make([]string, len(m.apps))
 		for i, a := range m.apps {
-			if m.all && a.Spec.Namespace != lastNs {
-				lastNs = a.Spec.Namespace
-				rows = append(rows, styleGroup.Render("─ "+lastNs+" "))
-			}
-			rows = append(rows, m.renderRow(i, a))
+			rows[i] = m.renderRow(i, a)
 		}
 		visible := m.appsRows() - 1 // minus the column header
 		if visible < 1 {
@@ -185,7 +180,11 @@ func (m *model) renderTable() string {
 
 func (m *model) renderRow(i int, a *state.App) string {
 	nameW := m.nameWidth()
-	name := truncate.String(a.Spec.Name, uint(max(nameW, 1)))
+	name := a.Spec.Name
+	if m.all {
+		name = a.Spec.Namespace + "/" + name
+	}
+	name = truncate.String(name, uint(max(nameW, 1)))
 	row := padRight(name, nameW) + statusStyled(a.Status)
 	if i == m.cursor {
 		// selection is a full-width reverse highlight, not a ">" prefix, so

@@ -221,9 +221,10 @@ func TestTuiAllNamespacesToggle(t *testing.T) {
 	tm := newTestModel(t, fc, "test", false)
 	w := newWatcher(tm)
 	w.wait(t, "demo-app")
-	// -A switches the Apps panel to the all-namespaces view
+	// -A switches the Apps panel to the all-namespaces view (names as ns/name)
 	sendKey(tm, 'A')
 	w.wait(t, " Apps(all) ")
+	w.wait(t, "test/demo-app")
 	quit(t, tm)
 }
 

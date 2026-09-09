@@ -432,21 +432,6 @@ func (m *model) adjustOffset() {
 	}
 	selLine := m.cursor
 	lines := len(m.apps)
-	if m.all {
-		// group headers are interleaved lines
-		selLine, lines = 0, 0
-		lastNs := ""
-		for i, a := range m.apps {
-			if a.Spec.Namespace != lastNs {
-				lastNs = a.Spec.Namespace
-				lines++
-			}
-			if i == m.cursor {
-				selLine = lines
-			}
-			lines++
-		}
-	}
 	if m.listOffset > selLine {
 		m.listOffset = selLine
 	}
@@ -602,13 +587,6 @@ func (m *model) leftWidth() int {
 // The Detail panel keeps at least 4 content rows.
 func (m *model) appsRows() int {
 	total := len(m.apps) + 1
-	if m.all {
-		groups := map[string]bool{}
-		for _, a := range m.apps {
-			groups[a.Spec.Namespace] = true
-		}
-		total += len(groups)
-	}
 	if total < 2 {
 		total = 2 // header + "(no apps)" line
 	}
