@@ -65,7 +65,7 @@ func (m *model) renderHeader() string {
 	if m.all {
 		nsLabel = "all namespaces"
 	}
-	ver := m.daemonVersion
+	ver := strings.TrimPrefix(m.daemonVersion, "v")
 	if ver == "" {
 		ver = "?"
 	}
