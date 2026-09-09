@@ -221,9 +221,9 @@ func TestTuiAllNamespacesToggle(t *testing.T) {
 	tm := newTestModel(t, fc, "test", false)
 	w := newWatcher(tm)
 	w.wait(t, "demo-app")
-	// -A rendering adds a NAMESPACE column
+	// -A switches the Apps panel to the all-namespaces view
 	sendKey(tm, 'A')
-	w.wait(t, "NAMESPACE")
+	w.wait(t, " Apps(all) ")
 	quit(t, tm)
 }
 
@@ -242,7 +242,8 @@ func TestTuiListScrolls(t *testing.T) {
 	for i := 0; i < 9; i++ {
 		sendKey(tm, 'j')
 	}
-	w.wait(t, ">app-09")
+	// app-09 only enters the visible window after the cursor scrolls it in
+	w.wait(t, "app-09")
 	quit(t, tm)
 }
 
@@ -253,13 +254,13 @@ func TestTuiBorderLayout(t *testing.T) {
 	tm := newTestModel(t, fc, "test", false)
 	w := newWatcher(tm)
 	// header bar: brand left, context right (ns filter, daemon version, count)
-	w.wait(t, "spm4a")
+	w.wait(t, "SPM4A")
 	w.wait(t, "ns: test")
 	w.wait(t, "0.1.0-fake")
 	w.wait(t, "apps: 1")
-	// rounded panels with embedded titles
-	w.wait(t, "╭")
-	w.wait(t, "╰")
+	// square panels with embedded titles
+	w.wait(t, "┌")
+	w.wait(t, "└")
 	w.wait(t, " Apps(test) ")
 	w.wait(t, " Logs: test/demo-app ")
 
@@ -271,6 +272,26 @@ func TestTuiBorderLayout(t *testing.T) {
 	quit(t, tm)
 }
 
+func TestTuiDetailPanel(t *testing.T) {
+	fc := newFakeClient()
+	fc.apps = []*state.App{fakeApp("test", "demo-app", "ready")}
+
+	tm := newTestModel(t, fc, "test", false)
+	w := newWatcher(tm)
+	// bottom-left panel shows the selected app's config/status properties
+	w.wait(t, " Detail: test/demo-app ")
+	w.wait(t, "workdir: /x")
+	w.wait(t, "launcher: jar")
+	// tab moves focus to the detail panel (title marked, border highlighted)
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+	w.wait(t, " Detail: test/demo-app * ")
+	// tab again moves to logs, esc back to the list
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+	w.wait(t, " Logs: test/demo-app * ")
+	tm.Send(tea.KeyMsg{Type: tea.KeyEscape})
+	quit(t, tm)
+}
+
 func TestTuiLogsCollapsedOnTinyTerminal(t *testing.T) {
 	fc := newFakeClient()
 	fc.apps = []*state.App{fakeApp("test", "demo-app", "ready")}
@@ -278,7 +299,6 @@ func TestTuiLogsCollapsedOnTinyTerminal(t *testing.T) {
 	tm := teatest.NewTestModel(t, tui.NewModel(fc, "test", false), teatest.WithInitialTermSize(120, 8))
 	time.Sleep(200 * time.Millisecond)
 	w := newWatcher(tm)
-	w.wait(t, "demo-app")
 	w.wait(t, "terminal too small")
 	quit(t, tm)
 }

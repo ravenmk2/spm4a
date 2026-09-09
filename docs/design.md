@@ -451,13 +451,18 @@ spm4a tui [-A]
 
 ## 15. TUI（bubbletea）
 
-`spm4a tui`：k9s 风格边框布局——顶部 header 条（spm4a 标识 + namespace/版本/计数
-上下文）；Apps 面板与 Logs 面板均为圆角边框内嵌标题（` Apps(ns) ` / ` Logs: ns/name `），
-日志聚焦时标题加 `*` 标记且边框变色；小终端自动折叠 Logs 面板。
-app 列示状态/端口/PID/运行时长/资源占用（gopsutil，进程树含子进程求和）；
+`spm4a tui`：k9s 风格边框布局——顶部 header 条（`SPM4A` 标识 + namespace/版本/计数
+上下文）；主体左右分栏：左侧窄栏（≤36 列）上为 Apps 面板（紧凑列表：名字 + 彩色
+状态），下为 Detail 面板（选中 app 的配置与状态属性，可滚动）；右侧为 Logs 面板
+（stdout/stderr 实时输出，viewport 支持滚动与翻页）。各面板均为直角边框内嵌标题、
+内容留一列左边距
+（` Apps(ns) ` / ` Detail: ns/name ` / ` Logs: ns/name `），聚焦的面板标题加 `*`
+标记且边框变色；终端小于 60x10 时整体退化为"terminal too small"提示。
+app 资源占用经 gopsutil 采集（进程树含子进程求和）；
 日志走 `logs.follow(lines=200)`（先送尾部 N 行再跟随）；快捷键：`s` stop、
-`r` restart、`l` reload、`d` rm（仅 stopped/error，y/n 确认）、`enter` 聚焦日志
-（esc 返回）、`A` 切换全 namespace、`q` 退出。数据经 `app.list` +
+`r` restart、`l` reload、`d` rm（仅 stopped/error，y/n 确认）、`tab`/`shift+tab`
+循环聚焦 Apps/Detail/Logs（聚焦面板内 `↑↓/jk` 滚动、`pgup/pgdn` 翻页）、
+`enter` 聚焦日志（esc 返回）、`A` 切换全 namespace、`q` 退出。数据经 `app.list` +
 `events.subscribe` SSE 驱动，2s tick 兜底刷新指标；非 TTY 环境运行报清晰错误。
 
 ## 16. 工程结构

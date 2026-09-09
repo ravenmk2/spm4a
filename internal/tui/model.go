@@ -34,9 +34,10 @@ type model struct {
 	eventsCh     <-chan AppEvent
 	eventsCancel func()
 
-	viewport  viewport.Model
-	focusLogs bool
-	confirm   *state.App
+	viewport viewport.Model // logs (right panel)
+	detailVP viewport.Model // selected-app detail (bottom-left panel)
+	focus    int
+	confirm  *state.App
 
 	statusMsg string
 	statusErr bool
@@ -46,6 +47,14 @@ type model struct {
 	width, height int
 	initialized   bool
 }
+
+// focus targets: the app list (top-left), the detail panel (bottom-left) and
+// the logs panel (right).
+const (
+	focusList = iota
+	focusDetail
+	focusLogs
+)
 
 type appsMsg []*state.App
 type metricsMsg map[int32]appMetrics
@@ -191,8 +200,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.initialized = true
-		m.viewport = viewport.New(msg.Width-2, m.viewportHeight())
-		m.viewport.SetContent(strings.Join(m.logLines, "\n"))
+		m.viewport = viewport.New(m.width-m.leftWidth()-2, m.viewportHeight())
+		m.detailVP = viewport.New(m.leftWidth()-2, m.detailHeight())
+		m.refreshViewport()
+		m.refreshDetail()
 		m.adjustOffset()
 		return m, nil
 
@@ -200,11 +211,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.apps = msg
 		m.fixSelection()
 		m.adjustOffset()
-		m.viewport.Height = m.viewportHeight()
+		m.syncPanelSizes()
+		m.refreshDetail()
 		return m, m.syncLogsCmd()
 
 	case metricsMsg:
 		m.metrics = msg
+		m.refreshDetail()
 		return m, nil
 
 	case tickMsg:
@@ -294,17 +307,27 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.focusLogs {
+	if m.focus != focusList {
 		switch msg.String() {
 		case "esc":
-			m.focusLogs = false
+			m.focus = focusList
+			return m, nil
+		case "tab":
+			m.focus = (m.focus + 1) % 3
+			return m, nil
+		case "shift+tab":
+			m.focus = (m.focus + 2) % 3
 			return m, nil
 		case "q", "ctrl+c":
 			m.cleanup()
 			return m, tea.Quit
 		}
 		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
+		if m.focus == focusDetail {
+			m.detailVP, cmd = m.detailVP.Update(msg)
+		} else {
+			m.viewport, cmd = m.viewport.Update(msg)
+		}
 		return m, cmd
 	}
 
@@ -312,11 +335,20 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		m.cleanup()
 		return m, tea.Quit
+	case "tab":
+		if m.selected() != nil {
+			m.focus = focusDetail
+		}
+		return m, nil
+	case "shift+tab":
+		m.focus = focusLogs
+		return m, nil
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
 			m.selKey = ""
 			m.adjustOffset()
+			m.refreshDetail()
 			return m, m.syncLogsCmd()
 		}
 	case "down", "j":
@@ -324,6 +356,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 			m.selKey = ""
 			m.adjustOffset()
+			m.refreshDetail()
 			return m, m.syncLogsCmd()
 		}
 	case "A":
@@ -337,7 +370,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.fetchApps, m.subscribeEventsCmd())
 	case "enter":
 		if m.selected() != nil {
-			m.focusLogs = true
+			m.focus = focusLogs
 		}
 	case "s":
 		if app := m.selected(); app != nil {
@@ -487,7 +520,8 @@ func (m *model) applyEvent(ev AppEvent) {
 			}
 		}
 		m.fixSelection()
-		m.viewport.Height = m.viewportHeight()
+		m.syncPanelSizes()
+		m.refreshDetail()
 		return
 	}
 	if ev.App == nil {
@@ -496,12 +530,14 @@ func (m *model) applyEvent(ev AppEvent) {
 	for i, a := range m.apps {
 		if keyOf(a.Spec.Namespace, a.Spec.Name) == k {
 			m.apps[i] = ev.App
+			m.refreshDetail()
 			return
 		}
 	}
 	m.apps = append(m.apps, ev.App)
 	m.fixSelection()
-	m.viewport.Height = m.viewportHeight()
+	m.syncPanelSizes()
+	m.refreshDetail()
 }
 
 func (m *model) appendLog(chunk string) {
@@ -522,8 +558,48 @@ func (m *model) refreshViewport() {
 	m.viewport.GotoBottom()
 }
 
+func (m *model) refreshDetail() {
+	if !m.initialized {
+		return
+	}
+	m.detailVP.SetContent(m.renderDetail())
+}
+
+// syncPanelSizes reapplies panel dimensions after the app count changes
+// (the Apps panel grows, the Detail panel shrinks).
+func (m *model) syncPanelSizes() {
+	if !m.initialized {
+		return
+	}
+	m.viewport.Width = m.width - m.leftWidth() - 2
+	m.viewport.Height = m.viewportHeight()
+	m.detailVP.Width = m.leftWidth() - 2
+	m.detailVP.Height = m.detailHeight()
+}
+
+// mainHeight: rows between the header and the status bar.
+func (m *model) mainHeight() int { return m.height - 2 }
+
+// tooSmall: below this size the two-column layout is unusable.
+func (m *model) tooSmall() bool { return m.width < 60 || m.height < 10 }
+
+// leftWidth: the narrow left column (Apps + Detail panels).
+func (m *model) leftWidth() int {
+	w := m.width / 3
+	if w > 36 {
+		w = 36
+	}
+	if w < 24 {
+		w = 24
+	}
+	if max := m.width - 30; w > max {
+		w = max
+	}
+	return w
+}
+
 // appsRows: content rows of the Apps panel, including the column header.
-// The panel is capped near half the screen; the rest goes to Logs.
+// The Detail panel keeps at least 4 content rows.
 func (m *model) appsRows() int {
 	total := len(m.apps) + 1
 	if m.all {
@@ -536,7 +612,7 @@ func (m *model) appsRows() int {
 	if total < 2 {
 		total = 2 // header + "(no apps)" line
 	}
-	cap := m.height/2 - 3
+	cap := m.mainHeight() - 8 // apps borders(2) + detail borders(2) + detail min(4)
 	if cap < 2 {
 		cap = 2
 	}
@@ -546,22 +622,18 @@ func (m *model) appsRows() int {
 	return total
 }
 
-// logPanelHeight: viewport content rows inside the Logs panel. Layout:
-// header(1) + status(1) + apps panel (appsRows + 2 borders) + logs borders(2).
-func (m *model) logPanelHeight() int {
-	h := m.height - 6 - m.appsRows()
-	if h < 0 {
-		return 0
+// detailHeight: content rows of the Detail panel — the rest of the left column.
+func (m *model) detailHeight() int {
+	h := m.mainHeight() - m.appsRows() - 4
+	if h < 1 {
+		return 1
 	}
 	return h
 }
 
-// logsCollapsed: under very short terminals the Apps panel wins and the Logs
-// panel collapses to a placeholder line.
-func (m *model) logsCollapsed() bool { return m.logPanelHeight() < 2 }
-
+// viewportHeight: content rows of the Logs viewport (full-height right panel).
 func (m *model) viewportHeight() int {
-	if h := m.logPanelHeight(); h > 0 {
+	if h := m.mainHeight() - 2; h > 0 {
 		return h
 	}
 	return 1
