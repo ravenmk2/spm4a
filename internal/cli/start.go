@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -256,12 +257,22 @@ func printAppLine(a *state.App) {
 		a.Spec.Namespace, a.Spec.Name, a.PID, a.ActualPort, a.Status)
 }
 
-// followReadiness polls app.status until every started app reaches a terminal
-// state (ready / error / stopped), printing a second line per app. It maps
-// outcomes back to the same errors the server-side wait would have returned
-// (exit-code semantics unchanged: ready timeout -> 6, early exit -> 1).
+// followReadiness watches events.subscribe until every started app reaches a
+// terminal state (ready / error / stopped), printing a second line per app.
+// It maps outcomes back to the same errors the server-side wait would have
+// returned (exit-code semantics unchanged: ready timeout -> 6, early exit -> 1).
+//
+// The subscription is a long-lived request: besides pushing status changes,
+// it keeps the daemon alive — idle-exit counts in-flight subscriptions as
+// clients, while short polls would let the daemon exit between them once the
+// last app leaves an active state.
 func followReadiness(ctx context.Context, c *ipc.Client, apps []*state.App, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+	sub, err := c.Stream(ctx, "events.subscribe", ipc.SubscribeParams{Namespace: apps[0].Spec.Namespace})
+	if err != nil {
+		return err
+	}
+	defer sub.Close()
+
 	pending := map[string]*state.App{}
 	for _, a := range apps {
 		pending[keyOf(a)] = a
@@ -274,39 +285,77 @@ func followReadiness(ctx context.Context, c *ipc.Client, apps []*state.App, time
 			firstCode = err.Code
 		}
 	}
-	for len(pending) > 0 && time.Now().Before(deadline) {
-		for key, a := range pending {
-			var res struct {
-				App *state.App `json:"app"`
-			}
-			err := c.Call(ctx, "app.status", ipc.NameParams{
-				Namespace: a.Spec.Namespace, Name: a.Spec.Name,
-			}, &res)
-			if err != nil {
-				return err
-			}
-			cur := res.App
-			switch cur.Status {
-			case state.StatusReady:
-				printAppLine(cur)
-				delete(pending, key)
-			case state.StatusError, state.StatusStopped:
-				delete(pending, key)
-				fail(startFailure(cur, timeout))
-			}
+	settle := func(cur *state.App) {
+		key := keyOf(cur)
+		if _, ok := pending[key]; !ok {
+			return
 		}
-		if len(pending) > 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(500 * time.Millisecond):
-			}
+		switch cur.Status {
+		case state.StatusReady:
+			printAppLine(cur)
+			delete(pending, key)
+		case state.StatusError, state.StatusStopped:
+			delete(pending, key)
+			fail(startFailure(cur, timeout))
 		}
 	}
+
+	// Snapshot first: an app may have settled before the subscription was live.
 	for _, a := range pending {
-		fail(ipc.NewError(ipc.CodeReadyTimeout, fmt.Sprintf(
-			"app %q did not become ready on port %d within %s; see log %s",
-			a.Spec.Name, a.ActualPort, timeout, a.LogPath)))
+		var res struct {
+			App *state.App `json:"app"`
+		}
+		if err := c.Call(ctx, "app.status", ipc.NameParams{
+			Namespace: a.Spec.Namespace, Name: a.Spec.Name,
+		}, &res); err != nil {
+			return err
+		}
+		settle(res.App)
+	}
+
+	// The daemon enforces the same timeout, then kills the process and waits
+	// (up to 5s) for it to exit before marking the app error. Allow margin so
+	// that terminal state lands before we give up.
+	timer := time.NewTimer(timeout + 10*time.Second)
+	defer timer.Stop()
+	for len(pending) > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			for _, a := range pending {
+				fail(ipc.NewError(ipc.CodeReadyTimeout, fmt.Sprintf(
+					"app %q did not become ready on port %d within %s; see log %s",
+					a.Spec.Name, a.ActualPort, timeout, a.LogPath)))
+			}
+			pending = nil
+		case n, ok := <-sub.Events:
+			if !ok {
+				return fmt.Errorf("daemon closed the event stream while waiting for readiness")
+			}
+			if n.Method != "event" {
+				continue
+			}
+			var ev struct {
+				Type      string     `json:"type"`
+				Namespace string     `json:"namespace"`
+				Name      string     `json:"name"`
+				App       *state.App `json:"app"`
+			}
+			if err := json.Unmarshal(n.Params, &ev); err != nil {
+				continue
+			}
+			if ev.Type == "app.deleted" {
+				if a, ok := pending[ev.Namespace+"/"+ev.Name]; ok {
+					delete(pending, ev.Namespace+"/"+ev.Name)
+					fail(startFailure(a, timeout))
+				}
+				continue
+			}
+			if ev.App != nil {
+				settle(ev.App)
+			}
+		}
 	}
 	if firstCode != 0 {
 		return ipc.NewError(firstCode, strings.Join(msgs, "; "))

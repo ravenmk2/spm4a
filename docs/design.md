@@ -443,8 +443,10 @@ spm4a tui [-A]
 ```
 
 - `start` 默认阻塞至 `ready`（agent 友好），`--no-wait` 立即返回。人类输出为两段式：
-  进程拉起后立即打印 `starting` 行（namespace/port/pid），随后 CLI 轮询 `app.status`
-  并在每个 app 就绪时打印 `ready` 行（失败/超时映射回与服务端等待相同的错误与退出码）；
+  进程拉起后立即打印 `starting` 行（`<ns>/<name>: pid=N, port=N, status=S`），随后
+  CLI 通过 `events.subscribe` 长连接跟踪状态变化（长连接同时抑制 daemon 的
+  idle-exit；短轮询会让 daemon 在两次请求之间退出），并在每个 app 就绪时打印
+  `ready` 行（失败/超时映射回与服务端等待相同的错误与退出码）；
   `--json` 保持服务端单次阻塞返回（机器消费者拿到的是最终结果）。
 - `-A/--all-namespace`：`ls`/`tui` 跨 namespace 展示；单 app 命令跨 namespace 按名解析，
   恰好一个匹配才执行，多个报歧义错误（退出码 2）并列出候选。
