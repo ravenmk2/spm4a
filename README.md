@@ -3,8 +3,11 @@
 [![test](https://github.com/ravenmk2/spm4a/actions/workflows/test.yml/badge.svg)](https://github.com/ravenmk2/spm4a/actions/workflows/test.yml)
 
 A pm2-style process manager for Spring Boot apps, built for agentic coding.
-面向 Agentic Coding 的 Spring Boot 进程管理器：Coding Agent 用它启动 / 调试 / 测试
-Spring Boot 应用，人类开发者使用内置 TUI。支持 Windows / Linux / macOS。
+面向 Agentic Coding 的 Spring Boot 进程管理器（类 pm2）：Go 实现，单一二进制，
+CLI + daemon + TUI 三形态——Agent 经 CLI 启动 / 调试 / 测试应用，人类开发者用
+TUI 观察与操作。支持 Windows / Linux / macOS。
+
+![spm4a tui](docs/screenshot.png)
 
 ## 特性
 
