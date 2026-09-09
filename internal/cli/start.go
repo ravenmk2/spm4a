@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -220,7 +221,14 @@ func runStart(cmd *cobra.Command, f *startFlags, args []string) error {
 		return err
 	}
 	wait := !f.noWait
-	params := ipc.StartParams{Specs: specs, Wait: &wait, Timeout: f.timeout.String()}
+	serverWait := wait
+	if wait && !flagJSON {
+		// Two-stage human output: return as soon as the process is spawned,
+		// print the "starting" line, then follow readiness client-side.
+		// --json keeps the single-shot server-side wait.
+		serverWait = false
+	}
+	params := ipc.StartParams{Specs: specs, Wait: &serverWait, Timeout: f.timeout.String()}
 	if len(specs) == 1 {
 		params.Spec = &specs[0]
 		params.Specs = nil
@@ -235,10 +243,91 @@ func runStart(cmd *cobra.Command, f *startFlags, args []string) error {
 		return printJSON(res)
 	}
 	for _, a := range res.Apps {
-		fmt.Printf("%s: %s (namespace %s, port %d, pid %d)\n",
-			a.Spec.Name, a.Status, a.Spec.Namespace, a.ActualPort, a.PID)
+		printAppLine(a)
+	}
+	if !wait {
+		return nil
+	}
+	return followReadiness(cmd.Context(), c, res.Apps, f.timeout)
+}
+
+func printAppLine(a *state.App) {
+	fmt.Printf("%s/%s: pid=%d, port=%d, status=%s\n",
+		a.Spec.Namespace, a.Spec.Name, a.PID, a.ActualPort, a.Status)
+}
+
+// followReadiness polls app.status until every started app reaches a terminal
+// state (ready / error / stopped), printing a second line per app. It maps
+// outcomes back to the same errors the server-side wait would have returned
+// (exit-code semantics unchanged: ready timeout -> 6, early exit -> 1).
+func followReadiness(ctx context.Context, c *ipc.Client, apps []*state.App, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	pending := map[string]*state.App{}
+	for _, a := range apps {
+		pending[keyOf(a)] = a
+	}
+	var msgs []string
+	firstCode := 0
+	fail := func(err *ipc.Error) {
+		msgs = append(msgs, err.Message)
+		if firstCode == 0 {
+			firstCode = err.Code
+		}
+	}
+	for len(pending) > 0 && time.Now().Before(deadline) {
+		for key, a := range pending {
+			var res struct {
+				App *state.App `json:"app"`
+			}
+			err := c.Call(ctx, "app.status", ipc.NameParams{
+				Namespace: a.Spec.Namespace, Name: a.Spec.Name,
+			}, &res)
+			if err != nil {
+				return err
+			}
+			cur := res.App
+			switch cur.Status {
+			case state.StatusReady:
+				printAppLine(cur)
+				delete(pending, key)
+			case state.StatusError, state.StatusStopped:
+				delete(pending, key)
+				fail(startFailure(cur, timeout))
+			}
+		}
+		if len(pending) > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+	}
+	for _, a := range pending {
+		fail(ipc.NewError(ipc.CodeReadyTimeout, fmt.Sprintf(
+			"app %q did not become ready on port %d within %s; see log %s",
+			a.Spec.Name, a.ActualPort, timeout, a.LogPath)))
+	}
+	if firstCode != 0 {
+		return ipc.NewError(firstCode, strings.Join(msgs, "; "))
 	}
 	return nil
+}
+
+func keyOf(a *state.App) string { return a.Spec.Namespace + "/" + a.Spec.Name }
+
+// startFailure maps a terminal non-ready state to the error the server-side
+// wait would have returned for it.
+func startFailure(a *state.App, timeout time.Duration) *ipc.Error {
+	if a.LastExit != nil && a.LastExit.Code >= 0 {
+		return ipc.NewError(ipc.CodeInvalidState, fmt.Sprintf(
+			"app %q exited during startup (exit code %d); see log %s",
+			a.Spec.Name, a.LastExit.Code, a.LogPath))
+	}
+	// killed by the daemon's ready check (exit code -1) or vanished
+	return ipc.NewError(ipc.CodeReadyTimeout, fmt.Sprintf(
+		"app %q did not become ready on port %d within %s; see log %s",
+		a.Spec.Name, a.ActualPort, timeout, a.LogPath))
 }
 
 func specFromEntry(e appFileEntry, base string) (ipc.StartSpec, bool, error) {

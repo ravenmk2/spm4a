@@ -352,7 +352,8 @@ CLI 显式参数 > spm4a-app.yaml > 自动探测（namespace 名 / 端口随机�
 - 分配流程：候选端口 bind 探测 → 释放并内存预留 → 注入启动参数 →
   app ready 或失败后释放预留。
 - 已知竞态：释放到 JVM 绑定之间端口可能被抢。检测到启动早期因绑定失败退出时，
-  自动换新端口重试一次（仅阻塞等待模式下重试；`--no-wait` 时首候选失败直接转 error）。
+  自动换新端口重试一次（仅服务端阻塞等待模式下重试，即 `--json`；
+  人类输出与 `--no-wait` 走 `wait=false`，首候选失败直接转 error）。
 
 ## 10. 就绪检查与优雅停机
 
@@ -441,7 +442,10 @@ spm4a tui [-A]
 全局: --json  --namespace  -A/--all-namespace   # namespace 亦可用 SPM4A_NAMESPACE 环境变量
 ```
 
-- `start` 默认阻塞至 `ready`（agent 友好），`--no-wait` 立即返回。
+- `start` 默认阻塞至 `ready`（agent 友好），`--no-wait` 立即返回。人类输出为两段式：
+  进程拉起后立即打印 `starting` 行（namespace/port/pid），随后 CLI 轮询 `app.status`
+  并在每个 app 就绪时打印 `ready` 行（失败/超时映射回与服务端等待相同的错误与退出码）；
+  `--json` 保持服务端单次阻塞返回（机器消费者拿到的是最终结果）。
 - `-A/--all-namespace`：`ls`/`tui` 跨 namespace 展示；单 app 命令跨 namespace 按名解析，
   恰好一个匹配才执行，多个报歧义错误（退出码 2）并列出候选。
 - 退出码：`0` 成功；`1` 通用错误；`2` 用法/参数错误（含 -32602）；`3` app 不存在（-32001）；
