@@ -380,6 +380,11 @@ func (d *Daemon) waitReady(app *state.App, p *proc.Proc, timeout time.Duration) 
 			}
 		}
 		if time.Now().After(deadline) {
+			// Provisional reason, set before the kill so watch() can preserve
+			// it when it records the real exit code.
+			d.mu.Lock()
+			app.LastExit = &state.ExitInfo{Code: -1, At: time.Now(), Reason: "ready-timeout"}
+			d.mu.Unlock()
 			_ = p.Kill()
 			select {
 			case <-p.Done():
@@ -398,10 +403,14 @@ func (d *Daemon) failApp(app *state.App, code int) {
 	d.mu.Lock()
 	switch app.Status {
 	case state.StatusStarting, state.StatusReady, state.StatusUnready:
+		reason := ""
+		if app.LastExit != nil {
+			reason = app.LastExit.Reason // preserve "ready-timeout" set before the kill
+		}
 		app.Status = state.StatusError
 		app.PID = 0
 		app.ProcStartedAt = 0
-		app.LastExit = &state.ExitInfo{Code: code, At: time.Now()}
+		app.LastExit = &state.ExitInfo{Code: code, At: time.Now(), Reason: reason}
 		_ = d.store.Save(app.Spec.Namespace)
 	default: // stopping/stopped: the stop flow owns the final state
 	}
@@ -423,7 +432,11 @@ func (d *Daemon) watch(key string, p *proc.Proc) {
 	ns, name, _ := strings.Cut(key, "/")
 	app, ok := d.store.Get(ns, name)
 	if ok {
-		app.LastExit = &state.ExitInfo{Code: code, At: time.Now()}
+		reason := ""
+		if app.LastExit != nil {
+			reason = app.LastExit.Reason // e.g. "ready-timeout" set before the kill
+		}
+		app.LastExit = &state.ExitInfo{Code: code, At: time.Now(), Reason: reason}
 		switch app.Status {
 		case state.StatusStopping, state.StatusStopped:
 			app.Status = state.StatusStopped

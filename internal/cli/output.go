@@ -57,6 +57,10 @@ func printAppDetail(a *state.App) {
 	}
 	out("restarts", a.Restarts)
 	if a.LastExit != nil {
-		out("lastExit", fmt.Sprintf("code %d at %s", a.LastExit.Code, a.LastExit.At.Format(time.RFC3339)))
+		s := fmt.Sprintf("code %d at %s", a.LastExit.Code, a.LastExit.At.Format(time.RFC3339))
+		if a.LastExit.Reason != "" {
+			s += " (" + a.LastExit.Reason + ")"
+		}
+		out("lastExit", s)
 	}
 }

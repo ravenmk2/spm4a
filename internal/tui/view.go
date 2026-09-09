@@ -305,7 +305,11 @@ func (m *model) renderDetail() string {
 		kv("started", a.StartedAt.Format("2006-01-02 15:04:05"))
 	}
 	if a.LastExit != nil {
-		kv("last exit", fmt.Sprintf("code %d at %s", a.LastExit.Code, a.LastExit.At.Format("2006-01-02 15:04:05")))
+		s := fmt.Sprintf("code %d at %s", a.LastExit.Code, a.LastExit.At.Format("2006-01-02 15:04:05"))
+		if a.LastExit.Reason != "" {
+			s += " (" + a.LastExit.Reason + ")"
+		}
+		kv("last exit", s)
 	}
 	return strings.Join(lines, "\n")
 }

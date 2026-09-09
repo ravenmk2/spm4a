@@ -43,6 +43,10 @@ type Spec struct {
 type ExitInfo struct {
 	Code int       `json:"code"`
 	At   time.Time `json:"at"`
+	// Reason marks daemon-initiated kills (e.g. "ready-timeout"): on Windows a
+	// killed process reports exit code 1, indistinguishable from a genuine
+	// early exit by code alone.
+	Reason string `json:"reason,omitempty"`
 }
 
 type App struct {

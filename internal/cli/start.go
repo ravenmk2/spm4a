@@ -366,14 +366,16 @@ func followReadiness(ctx context.Context, c *ipc.Client, apps []*state.App, time
 func keyOf(a *state.App) string { return a.Spec.Namespace + "/" + a.Spec.Name }
 
 // startFailure maps a terminal non-ready state to the error the server-side
-// wait would have returned for it.
+// wait would have returned for it. Classification goes by ExitInfo.Reason,
+// not the exit code: on Windows a daemon kill reports exit code 1, which is
+// indistinguishable from a genuine early exit.
 func startFailure(a *state.App, timeout time.Duration) *ipc.Error {
-	if a.LastExit != nil && a.LastExit.Code >= 0 {
+	if a.LastExit != nil && a.LastExit.Reason != "ready-timeout" && a.LastExit.Code >= 0 {
 		return ipc.NewError(ipc.CodeInvalidState, fmt.Sprintf(
 			"app %q exited during startup (exit code %d); see log %s",
 			a.Spec.Name, a.LastExit.Code, a.LogPath))
 	}
-	// killed by the daemon's ready check (exit code -1) or vanished
+	// killed by the daemon's ready check, or the record vanished
 	return ipc.NewError(ipc.CodeReadyTimeout, fmt.Sprintf(
 		"app %q did not become ready on port %d within %s; see log %s",
 		a.Spec.Name, a.ActualPort, timeout, a.LogPath))

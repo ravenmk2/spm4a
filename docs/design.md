@@ -225,7 +225,9 @@ type AppState struct {
     ResolvedJar string              // jar glob/相对路径展开后的绝对路径
     LogPath     string              // 实际生效的日志文件绝对路径
     Restarts    int
-    LastExit    *ExitInfo
+    LastExit    *ExitInfo             // code/at/reason；reason 标记 daemon 主动 kill
+                                       // （"ready-timeout"）——Windows 上被 kill 的进程
+                                       // 退出码为 1，仅凭 code 无法区分主动退出
 }
 ```
 
